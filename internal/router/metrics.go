@@ -1,30 +1,33 @@
 package router
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
-	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 )
 
 type Router struct {
-	repo *memstorage.MemoryStorage
+	repo repository.Repository
 }
 
-func New(st *memstorage.MemoryStorage) *Router {
+func NewRouter(st repository.Repository) *Router {
 	return &Router{
 		repo: st,
 	}
 }
 
-func (r Router) Run() {
+func (r Router) Run() error {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /", r.MetricsHandler)
+	mux.HandleFunc("POST /update/", r.MetricsHandler)
 
-	http.ListenAndServe("localhost:8080", mux)
+	if err := http.ListenAndServe("localhost:8080", mux); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r Router) MetricsHandler(resp http.ResponseWriter, req *http.Request) {
@@ -84,30 +87,4 @@ func (r Router) MetricsHandler(resp http.ResponseWriter, req *http.Request) {
 
 	resp.WriteHeader(http.StatusOK)
 	resp.Header().Set("Content-Type", "text/plain")
-
-	metrics := r.repo.Metrics
-	if len(metrics) == 0 {
-		resp.Write([]byte("No metrics available"))
-		return
-	}
-
-	for name, metric := range metrics {
-		var deltaStr, valueStr string
-
-		if metric.Delta != nil {
-			deltaStr = fmt.Sprintf("%d", *metric.Delta)
-		} else {
-			deltaStr = "nil"
-		}
-
-		if metric.Value != nil {
-			valueStr = fmt.Sprintf("%.6f", *metric.Value)
-		} else {
-			valueStr = "nil"
-		}
-
-		resp.Write(
-			[]byte(fmt.Sprintf("%s: %s or %s\n", name, deltaStr, valueStr)),
-		)
-	}
 }

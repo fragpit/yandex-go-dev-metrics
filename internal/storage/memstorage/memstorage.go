@@ -6,7 +6,10 @@ import (
 	"sync"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 )
+
+var _ repository.Repository = (*MemoryStorage)(nil)
 
 type MemoryStorage struct {
 	mu      sync.RWMutex
@@ -75,4 +78,8 @@ func (s *MemoryStorage) setCounter(metric *model.Metrics, value string) error {
 	}
 
 	return nil
+}
+
+func (s *MemoryStorage) GetMetrics() (map[string]model.Metrics, error) {
+	return s.Metrics, nil
 }
