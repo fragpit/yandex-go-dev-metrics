@@ -1,17 +1,22 @@
 package router
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestRouter_MetricsHandler(t *testing.T) {
+func TestRouter_setMetric(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 
 	type want struct {
@@ -54,14 +59,6 @@ func TestRouter_MetricsHandler(t *testing.T) {
 			request: "/update/gauge/test_metric_3/-1",
 			want: want{
 				code:        http.StatusOK,
-				contentType: "text/plain",
-			},
-		},
-		{
-			name:    "no metric name status",
-			request: "/update/counter",
-			want: want{
-				code:        http.StatusNotFound,
 				contentType: "text/plain",
 			},
 		},
@@ -127,15 +124,40 @@ func TestRouter_MetricsHandler(t *testing.T) {
 			rr := httptest.NewRecorder()
 			r := NewRouter(st)
 
-			r.MetricsHandler(rr, req)
+			chiCtx := chi.NewRouteContext()
+			req = req.WithContext(
+				context.WithValue(req.Context(), chi.RouteCtxKey, chiCtx),
+			)
+
+			sr := strings.Split(tt.request, "/")
+
+			var mType string
+			if len(sr) > 2 {
+				mType = sr[2]
+			}
+
+			var mName string
+			if len(sr) > 3 {
+				mName = sr[3]
+			}
+
+			var mValue string
+			if len(sr) > 4 {
+				mValue = sr[4]
+			}
+
+			chiCtx.URLParams.Add("type", fmt.Sprintf("%v", mType))
+			chiCtx.URLParams.Add("name", fmt.Sprintf("%v", mName))
+			chiCtx.URLParams.Add("value", fmt.Sprintf("%v", mValue))
+
+			r.setMetric(rr, req)
 			res := rr.Result()
 			defer res.Body.Close()
 
 			assert.Equal(t, tt.want.code, res.StatusCode)
 
 			if tt.want.value != "" {
-				sr := strings.Split(tt.request, "/")
-				if value, ok := st.Metrics[sr[3]]; ok {
+				if value, ok := st.Metrics[mValue]; ok {
 					var strVal string
 					if value.MType == "gauge" {
 						strVal = fmt.Sprintf("%v", *value.Value)
@@ -146,6 +168,97 @@ func TestRouter_MetricsHandler(t *testing.T) {
 					assert.Equal(t, strVal, tt.want.value)
 				}
 			}
+		})
+	}
+}
+
+func TestRouter_EmptyMetricName404(t *testing.T) {
+	st := memstorage.NewMemoryStorage()
+	r := NewRouter(st)
+
+	ts := httptest.NewServer(r.router)
+	defer ts.Close()
+
+	resp, err := http.Post(
+		ts.URL+"/update/counter",
+		"text/plain",
+		nil,
+	)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestRouter_getMetric(t *testing.T) {
+	st := memstorage.NewMemoryStorage()
+
+	metric := model.Metrics{
+		ID:    "test_metric_1",
+		MType: "counter",
+	}
+	err := st.SetMetric(&metric, "42")
+	require.NoError(t, err)
+
+	type want struct {
+		code  int
+		value string
+	}
+
+	tests := []struct {
+		name    string
+		request string
+		want    want
+	}{
+		{
+			name:    "valid get request",
+			request: "/value/counter/test_metric_1",
+			want: want{
+				code:  http.StatusOK,
+				value: "42",
+			},
+		},
+		{
+			name:    "valid get request",
+			request: "/value/counter/test_metric_2",
+			want: want{
+				code:  http.StatusNotFound,
+				value: "metric not found\n",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(
+				http.MethodGet,
+				tt.request,
+				nil,
+			)
+
+			rr := httptest.NewRecorder()
+			r := NewRouter(st)
+
+			chiCtx := chi.NewRouteContext()
+			req = req.WithContext(
+				context.WithValue(req.Context(), chi.RouteCtxKey, chiCtx),
+			)
+
+			sr := strings.Split(tt.request, "/")
+
+			var mName string
+			if len(sr) > 3 {
+				mName = sr[3]
+			}
+			chiCtx.URLParams.Add("name", fmt.Sprintf("%v", mName))
+
+			r.getMetric(rr, req)
+			res := rr.Result()
+			defer res.Body.Close()
+			assert.Equal(t, tt.want.code, res.StatusCode)
+
+			body, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want.value, string(body))
 		})
 	}
 }

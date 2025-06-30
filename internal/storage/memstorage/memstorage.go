@@ -23,6 +23,18 @@ func NewMemoryStorage() *MemoryStorage {
 	}
 }
 
+func (s *MemoryStorage) GetMetric(name string) (*model.Metrics, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if m, ok := s.Metrics[name]; ok {
+		return &m, nil
+	} else {
+		return nil, errors.New("metric id not found")
+	}
+
+}
+
 func (s *MemoryStorage) SetMetric(metric *model.Metrics, value string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
