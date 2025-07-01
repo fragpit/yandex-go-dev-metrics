@@ -3,17 +3,20 @@ package server
 import (
 	"log"
 
+	"github.com/fragpit/yandex-go-dev-metrics/internal/config"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/router"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 )
 
-func Run() {
-	log.Println("server started")
-
+func Run() error {
+	cfg := config.NewServerConfig()
 	st := memstorage.NewMemoryStorage()
-
 	router := router.NewRouter(st)
-	if err := router.Run(); err != nil {
-		log.Fatalf("fatal error: %v", err)
+
+	log.Printf("starting server (%v)", cfg.Address)
+	if err := router.Run(cfg.Address); err != nil {
+		return err
 	}
+
+	return nil
 }

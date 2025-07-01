@@ -1,32 +1,44 @@
 package agent
 
 import (
+	"context"
 	"log"
+	"os/signal"
+	"syscall"
 	"time"
+
+	"github.com/fragpit/yandex-go-dev-metrics/internal/config"
 )
 
-const (
-	serverURL      = "http://localhost:8080"
-	pollInterval   = 2 * time.Second
-	reportInterval = 10 * time.Second
-)
+func Run() error {
+	ctx, cancel := signal.NotifyContext(
+		context.Background(),
+		syscall.SIGTERM,
+		syscall.SIGINT,
+	)
+	defer cancel()
 
-func Run() {
-	pollTick := time.NewTicker(pollInterval)
-	reportTick := time.NewTicker(reportInterval)
+	cfg := config.NewAgentConfig()
+
+	pollTick := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+	reportTick := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
 
 	m := NewMetrics()
+	if err := m.pollMetrics(); err != nil {
+		return err
+	}
 
 	for {
 		select {
 		case <-pollTick.C:
 			if err := m.pollMetrics(); err != nil {
-				log.Printf("fatal error: %v", err)
+				return err
 			}
 		case <-reportTick.C:
-			if err := m.reportMetrics(); err != nil {
-				log.Printf("fatal error: %v", err)
-			}
+			m.reportMetrics(cfg.ServerURL)
+		case <-ctx.Done():
+			log.Println("agent shut down")
+			return nil
 		}
 	}
 }

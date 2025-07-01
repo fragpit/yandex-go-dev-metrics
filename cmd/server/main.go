@@ -1,7 +1,13 @@
 package main
 
-import "github.com/fragpit/yandex-go-dev-metrics/internal/server"
+import (
+	"log"
+
+	"github.com/fragpit/yandex-go-dev-metrics/internal/server"
+)
 
 func main() {
-	server.Run()
+	if err := server.Run(); err != nil {
+		log.Fatalf("server fatal error: %v", err)
+	}
 }

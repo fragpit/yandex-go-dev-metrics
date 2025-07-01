@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -13,7 +12,7 @@ import (
 )
 
 const (
-	clientPostTimeout = 2 * time.Second
+	clientPostTimeout = 5 * time.Second
 )
 
 type metric struct {
@@ -143,8 +142,9 @@ func (m *Metrics) pollMetrics() error {
 	return nil
 }
 
-func (m *Metrics) reportMetrics() error {
+func (m *Metrics) reportMetrics(serverURL string) {
 	log.Println("Reporting metrics at", time.Now().Format("15:04:05"))
+
 	client := &http.Client{
 		Timeout: clientPostTimeout,
 	}
@@ -160,16 +160,18 @@ func (m *Metrics) reportMetrics() error {
 
 		resp, err := client.Post(metricURL, "text/plain", nil)
 		if err != nil {
-			return fmt.Errorf("http client error: %w", err)
+			log.Printf("error reporting metrics %s: %v", name, err)
+			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			return errors.New("http server error")
+			log.Printf("error reporting metrics %s: %v", name, err)
+			return
 		}
 	}
 
-	return nil
+	m.counter = 0
 }
 
 func (m *Metrics) register(tp model.MetricType, name, value string) {

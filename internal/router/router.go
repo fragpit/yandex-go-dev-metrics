@@ -1,7 +1,6 @@
 package router
 
 import (
-	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -51,8 +50,8 @@ func (rt *Router) initRoutes() http.Handler {
 	return r
 }
 
-func (rt *Router) Run() error {
-	return http.ListenAndServe("localhost:8080", rt.router)
+func (rt *Router) Run(addr string) error {
+	return http.ListenAndServe(addr, rt.router)
 }
 
 func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
@@ -89,14 +88,7 @@ func (rt Router) getMetric(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var metricValue string
-	if metric.MType == "gauge" {
-		metricValue = fmt.Sprintf("%v", *metric.Value)
-	}
-
-	if metric.MType == "counter" {
-		metricValue = fmt.Sprintf("%v", *metric.Delta)
-	}
+	metricValue := metric.GetMetricValue()
 
 	resp.WriteHeader(http.StatusOK)
 	resp.Header().Set("Content-Type", "text/plain")
