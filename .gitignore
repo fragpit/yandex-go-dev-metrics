@@ -14,7 +14,9 @@
 # Binaries
 cmd/agent/main
 cmd/agent/agent
+cmd/agent/server
 cmd/server/main
+cmd/server/agent
 cmd/server/server
 
 # Dependency directories (remove the comment below to include it)
@@ -23,3 +25,7 @@ vendor/
 # IDEs directories
 .idea
 .vscode
+
+# env file
+.env
+__debug_bin*
