@@ -2,7 +2,7 @@ package config
 
 import (
 	"flag"
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -61,7 +61,12 @@ func NewAgentConfig() *AgentConfig {
 		var err error
 		finalPollInterval, err = strconv.Atoi(envPollInterval)
 		if err != nil {
-			log.Fatalf("invalid POLL_INTERVAL value: %v", err)
+			slog.Error(
+				"error converting parameter",
+				slog.String("parameter", "POLL_INTERVAL"),
+				slog.Any("error", err),
+			)
+			os.Exit(1)
 		}
 	}
 
@@ -70,7 +75,12 @@ func NewAgentConfig() *AgentConfig {
 		var err error
 		finalPollInterval, err = strconv.Atoi(envReportInterval)
 		if err != nil {
-			log.Fatalf("invalid REPORT_INTERVAL value: %v", err)
+			slog.Error(
+				"error converting parameter",
+				slog.String("parameter", "REPORT_INTERVAL"),
+				slog.Any("error", err),
+			)
+			os.Exit(1)
 		}
 	}
 
@@ -79,7 +89,13 @@ func NewAgentConfig() *AgentConfig {
 		var err error
 		finalRestore, err = strconv.ParseBool(envRestore)
 		if err != nil {
-			log.Fatalf("invalid REPORT_INTERVAL value: %v", err)
+			slog.Error(
+				"error converting parameter",
+				slog.String("parameter", "RESTORE"),
+				slog.Any("error", err),
+			)
+			os.Exit(1)
+
 		}
 	}
 

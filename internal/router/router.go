@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	"html/template"
-	"log"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -108,7 +107,7 @@ func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
 
 	tpl, err := template.ParseFiles(templatePath)
 	if err != nil {
-		log.Printf("template parse error: %v", err)
+		rt.logger.Error("template parse error", slog.Any("error", err))
 		http.Error(resp, "template error", http.StatusInternalServerError)
 		return
 	}
@@ -116,7 +115,7 @@ func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
 	resp.Header().Set("Content-Type", "text/html")
 	resp.WriteHeader(http.StatusOK)
 	if err := tpl.Execute(resp, metrics); err != nil {
-		log.Printf("template execute error: %v", err)
+		rt.logger.Error("template execute error", slog.Any("error", err))
 		http.Error(resp, "template error", http.StatusInternalServerError)
 	}
 }

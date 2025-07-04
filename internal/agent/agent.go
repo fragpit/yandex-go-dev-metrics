@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"log"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -52,7 +51,7 @@ func Run() error {
 			logger.Info("reporting metrics")
 			m.reportMetrics(cfg.ServerURL)
 		case <-ctx.Done():
-			log.Println("agent shut down")
+			logger.Info("agent shut down")
 			return nil
 		}
 	}

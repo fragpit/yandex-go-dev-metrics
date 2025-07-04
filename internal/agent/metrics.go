@@ -160,8 +160,8 @@ func (m *Metrics) reportMetrics(serverURL string) {
 		if err != nil {
 			m.logger.Error(
 				"error reporting metrics",
-				"metric", name,
-				"error", err,
+				slog.String("metric", name),
+				slog.Any("error", err),
 			)
 			return
 		}
@@ -170,8 +170,8 @@ func (m *Metrics) reportMetrics(serverURL string) {
 		if resp.StatusCode != http.StatusOK {
 			m.logger.Error(
 				"error reporting metrics",
-				"metric", name,
-				"error", err,
+				slog.String("metric", name),
+				slog.Any("error", err),
 			)
 			return
 		}
