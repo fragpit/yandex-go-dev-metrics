@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"log"
+	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -19,11 +21,22 @@ func Run() error {
 	defer cancel()
 
 	cfg := config.NewAgentConfig()
+	var logLevel slog.Level
+	switch cfg.LogLevel {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "info":
+		logLevel = slog.LevelInfo
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
 
 	pollTick := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
 	reportTick := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
 
-	m := NewMetrics()
+	m := NewMetrics(logger)
 	if err := m.pollMetrics(); err != nil {
 		return err
 	}
@@ -31,10 +44,12 @@ func Run() error {
 	for {
 		select {
 		case <-pollTick.C:
+			logger.Info("polling metrics")
 			if err := m.pollMetrics(); err != nil {
 				return err
 			}
 		case <-reportTick.C:
+			logger.Info("reporting metrics")
 			m.reportMetrics(cfg.ServerURL)
 		case <-ctx.Done():
 			log.Println("agent shut down")
