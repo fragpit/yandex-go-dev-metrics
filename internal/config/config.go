@@ -9,6 +9,7 @@ import (
 )
 
 type AgentConfig struct {
+	LogLevel       string `yaml:"log_level"`
 	ServerURL      string `yaml:"address"`
 	PollInterval   int    `yaml:"poll"`
 	ReportInterval int    `yaml:"report"`
@@ -16,6 +17,12 @@ type AgentConfig struct {
 }
 
 func NewAgentConfig() *AgentConfig {
+	logLevel := flag.String(
+		"log-level",
+		"info",
+		"log level (default: info)",
+	)
+
 	serverURL := flag.String(
 		"a",
 		"localhost:8080",
@@ -38,6 +45,11 @@ func NewAgentConfig() *AgentConfig {
 	)
 
 	flag.Parse()
+
+	finalLogLevel := *logLevel
+	if env := os.Getenv("DEBUG"); env != "" {
+		finalLogLevel = env
+	}
 
 	finalServerURL := *serverURL
 	if envServerURL := os.Getenv("ADDRESS"); envServerURL != "" {
@@ -76,6 +88,7 @@ func NewAgentConfig() *AgentConfig {
 	}
 
 	return &AgentConfig{
+		LogLevel:       finalLogLevel,
 		ServerURL:      finalServerURL,
 		PollInterval:   finalPollInterval,
 		ReportInterval: finalReportInterval,
@@ -84,10 +97,17 @@ func NewAgentConfig() *AgentConfig {
 }
 
 type ServerConfig struct {
-	Address string `yaml:"address"`
+	LogLevel string `yaml:"log_level"`
+	Address  string `yaml:"address"`
 }
 
 func NewServerConfig() *ServerConfig {
+	logLevel := flag.String(
+		"log-level",
+		"info",
+		"log level (default: info)",
+	)
+
 	address := flag.String(
 		"a",
 		"localhost:8080",
@@ -96,12 +116,18 @@ func NewServerConfig() *ServerConfig {
 
 	flag.Parse()
 
+	finalLogLevel := *logLevel
+	if env := os.Getenv("DEBUG"); env != "" {
+		finalLogLevel = env
+	}
+
 	finalAddress := *address
-	if envAddr := os.Getenv("ADDRESS"); envAddr != "" {
-		finalAddress = envAddr
+	if env := os.Getenv("ADDRESS"); env != "" {
+		finalAddress = env
 	}
 
 	return &ServerConfig{
-		Address: finalAddress,
+		LogLevel: finalLogLevel,
+		Address:  finalAddress,
 	}
 }

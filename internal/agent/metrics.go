@@ -2,7 +2,7 @@ package agent
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"runtime"
@@ -21,19 +21,19 @@ type metric struct {
 }
 
 type Metrics struct {
+	logger  *slog.Logger
 	counter int64
 	Metrics map[string]metric
 }
 
-func NewMetrics() *Metrics {
+func NewMetrics(l *slog.Logger) *Metrics {
 	return &Metrics{
+		logger:  l,
 		Metrics: make(map[string]metric),
 	}
 }
 
 func (m *Metrics) pollMetrics() error {
-	log.Println("Polling metrics at", time.Now().Format("15:04:05"))
-
 	var mstat runtime.MemStats
 	runtime.ReadMemStats(&mstat)
 
@@ -143,8 +143,6 @@ func (m *Metrics) pollMetrics() error {
 }
 
 func (m *Metrics) reportMetrics(serverURL string) {
-	log.Println("Reporting metrics at", time.Now().Format("15:04:05"))
-
 	client := &http.Client{
 		Timeout: clientPostTimeout,
 	}
@@ -160,13 +158,21 @@ func (m *Metrics) reportMetrics(serverURL string) {
 
 		resp, err := client.Post(metricURL, "text/plain", nil)
 		if err != nil {
-			log.Printf("error reporting metrics %s: %v", name, err)
+			m.logger.Error(
+				"error reporting metrics",
+				"metric", name,
+				"error", err,
+			)
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("error reporting metrics %s: %v", name, err)
+			m.logger.Error(
+				"error reporting metrics",
+				"metric", name,
+				"error", err,
+			)
 			return
 		}
 	}

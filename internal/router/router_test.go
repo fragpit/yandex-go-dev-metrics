@@ -122,7 +122,7 @@ func TestRouter_setMetric(t *testing.T) {
 				nil,
 			)
 			rr := httptest.NewRecorder()
-			r := NewRouter(st)
+			r := NewRouter(nil, st)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -174,7 +174,7 @@ func TestRouter_setMetric(t *testing.T) {
 
 func TestRouter_EmptyMetricName404(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
-	r := NewRouter(st)
+	r := NewRouter(nil, st)
 
 	ts := httptest.NewServer(r.router)
 	defer ts.Close()
@@ -236,7 +236,7 @@ func TestRouter_getMetric(t *testing.T) {
 			)
 
 			rr := httptest.NewRecorder()
-			r := NewRouter(st)
+			r := NewRouter(nil, st)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
