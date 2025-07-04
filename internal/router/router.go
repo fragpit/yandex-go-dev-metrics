@@ -2,8 +2,9 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"html/template"
-	"log"
+	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 )
 
 const apiShutdownTimeout = 5 * time.Second
@@ -35,25 +35,20 @@ func NewRouter(l *slog.Logger, st repository.Repository) *Router {
 
 func (rt *Router) initRoutes() http.Handler {
 	r := chi.NewMux()
-	r.Use(middleware.Logger)
+	r.Use(rt.slogMiddleware)
 
 	r.Get("/", rt.rootHandler)
 
 	r.Route("/value", func(r chi.Router) {
-		r.Route("/{type}", func(r chi.Router) {
-			r.Route("/{name}", func(r chi.Router) {
-				r.Get("/", rt.getMetric)
-			})
-		})
+		r.Post("/", rt.getMetricJSON)
+		r.Get("/{type}/{name}", rt.getMetric)
 	})
 
 	r.Route("/update", func(r chi.Router) {
-		r.Route("/{type}", func(r chi.Router) {
-			r.Route("/{name}", func(r chi.Router) {
-				r.Post("/{value}", rt.setMetric)
-			})
-		})
+		r.Post("/", rt.updateMetricJSON)
+		r.Post("/{type}/{name}/{value}", rt.updateMetric)
 	})
+
 	return r
 }
 
@@ -108,7 +103,7 @@ func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
 
 	tpl, err := template.ParseFiles(templatePath)
 	if err != nil {
-		log.Printf("template parse error: %v", err)
+		rt.logger.Error("template parse error", slog.Any("error", err))
 		http.Error(resp, "template error", http.StatusInternalServerError)
 		return
 	}
@@ -116,28 +111,125 @@ func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
 	resp.Header().Set("Content-Type", "text/html")
 	resp.WriteHeader(http.StatusOK)
 	if err := tpl.Execute(resp, metrics); err != nil {
-		log.Printf("template execute error: %v", err)
+		rt.logger.Error("template execute error", slog.Any("error", err))
 		http.Error(resp, "template error", http.StatusInternalServerError)
 	}
 }
 
-func (rt Router) getMetric(resp http.ResponseWriter, req *http.Request) {
-	metricName := chi.URLParam(req, "name")
+func (rt Router) getMetricJSON(resp http.ResponseWriter, req *http.Request) {
+	resp.Header().Set("Content-Type", "application/json")
 
-	metric, err := rt.repo.GetMetric(metricName)
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(
+			resp,
+			"error reading request body",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	var metric *model.Metrics
+	if err := json.Unmarshal(body, &metric); err != nil {
+		http.Error(resp, "error parsing request body", http.StatusBadRequest)
+		return
+	}
+
+	if !model.ValidateType(metric.MType) {
+		http.Error(resp, "incorrect metric type", http.StatusBadRequest)
+		return
+	}
+
+	if metric.ID == "" {
+		http.Error(resp, "metric name is empty", http.StatusBadRequest)
+		return
+	}
+
+	metric, err = rt.repo.GetMetric(metric.ID)
 	if err != nil {
 		http.Error(resp, "metric not found", http.StatusNotFound)
 		return
 	}
 
-	metricValue := metric.GetMetricValue()
+	data, err := json.Marshal(metric)
+	if err != nil {
+		http.Error(resp, "error marshalling metric", http.StatusInternalServerError)
+		return
+	}
 
 	resp.WriteHeader(http.StatusOK)
-	resp.Header().Set("Content-Type", "text/plain")
-	resp.Write([]byte(metricValue))
+	if _, err := resp.Write(data); err != nil {
+		http.Error(resp, "error writing response", http.StatusInternalServerError)
+		return
+	}
+
 }
 
-func (rt Router) setMetric(resp http.ResponseWriter, req *http.Request) {
+func (rt Router) updateMetricJSON(resp http.ResponseWriter, req *http.Request) {
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(resp, "error setting metric", http.StatusInternalServerError)
+		return
+	}
+
+	var metric *model.Metrics
+	if err := json.Unmarshal(body, &metric); err != nil {
+		http.Error(resp, "error setting metric", http.StatusInternalServerError)
+		return
+	}
+
+	if metric.ID == "" {
+		http.Error(resp, "metric name is empty", http.StatusNotFound)
+		return
+	}
+
+	if err := rt.repo.UpdateMetric(metric); err != nil {
+		http.Error(resp, "error setting metric", http.StatusInternalServerError)
+		return
+	}
+
+	resp.WriteHeader(http.StatusOK)
+	resp.Header().Set("Content-Type", "application/json")
+}
+
+func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		ww := &responseWriter{ResponseWriter: w, statusCode: 200}
+
+		h.ServeHTTP(ww, r)
+
+		rt.logger.Info("request completed",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", ww.statusCode),
+			slog.Int("resp_size", ww.size),
+			slog.Duration("duration", time.Since(start)),
+			slog.String("remote_addr", r.RemoteAddr),
+		)
+	})
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	size       int
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	size, err := rw.ResponseWriter.Write(b)
+	rw.size += size
+
+	return size, err
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rt Router) updateMetric(resp http.ResponseWriter, req *http.Request) {
 	metricType := chi.URLParam(req, "type")
 	metricName := chi.URLParam(req, "name")
 	metricValue := chi.URLParam(req, "value")
@@ -157,11 +249,32 @@ func (rt Router) setMetric(resp http.ResponseWriter, req *http.Request) {
 		MType: metricType,
 	}
 
-	if err := rt.repo.SetMetric(metric, metricValue); err != nil {
+	if err := metric.SetValue(metricValue); err != nil {
+		http.Error(resp, "error setting metric", http.StatusInternalServerError)
+		return
+	}
+
+	if err := rt.repo.UpdateMetric(metric); err != nil {
 		http.Error(resp, "error setting metric", http.StatusInternalServerError)
 		return
 	}
 
 	resp.WriteHeader(http.StatusOK)
 	resp.Header().Set("Content-Type", "text/plain")
+}
+
+func (rt Router) getMetric(resp http.ResponseWriter, req *http.Request) {
+	metricName := chi.URLParam(req, "name")
+
+	metric, err := rt.repo.GetMetric(metricName)
+	if err != nil {
+		http.Error(resp, "metric not found", http.StatusNotFound)
+		return
+	}
+
+	metricValue := metric.GetMetricValue()
+
+	resp.WriteHeader(http.StatusOK)
+	resp.Header().Set("Content-Type", "text/plain")
+	resp.Write([]byte(metricValue))
 }

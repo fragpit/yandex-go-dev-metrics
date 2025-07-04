@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -15,21 +17,16 @@ const (
 	clientPostTimeout = 5 * time.Second
 )
 
-type metric struct {
-	Type  model.MetricType
-	Value string
-}
-
 type Metrics struct {
 	logger  *slog.Logger
 	counter int64
-	Metrics map[string]metric
+	Metrics map[string]*model.Metrics
 }
 
 func NewMetrics(l *slog.Logger) *Metrics {
 	return &Metrics{
 		logger:  l,
-		Metrics: make(map[string]metric),
+		Metrics: make(map[string]*model.Metrics),
 	}
 }
 
@@ -37,131 +34,141 @@ func (m *Metrics) pollMetrics() error {
 	var mstat runtime.MemStats
 	runtime.ReadMemStats(&mstat)
 
-	m.register(model.GaugeType, "mstat_alloc", fmt.Sprintf("%d", mstat.Alloc))
-	m.register(
+	reg := func(tp model.MetricType, name, value string) {
+		if err := m.register(tp, name, value); err != nil {
+			m.logger.Error("failed to register metric",
+				slog.String("name", name),
+				slog.Any("error", err))
+		}
+	}
+
+	reg(model.GaugeType, "Alloc", fmt.Sprintf("%d", mstat.Alloc))
+	reg(
 		model.GaugeType,
-		"mstat_buckhashsys",
+		"BuckHashSys",
 		fmt.Sprintf("%d", mstat.BuckHashSys),
 	)
-	m.register(model.GaugeType, "mstat_frees", fmt.Sprintf("%d", mstat.Frees))
-	m.register(
+	reg(model.GaugeType, "Frees", fmt.Sprintf("%d", mstat.Frees))
+	reg(
 		model.GaugeType,
-		"mstat_gccpufraction",
+		"GCCPUFraction",
 		fmt.Sprintf("%f", mstat.GCCPUFraction),
 	)
-	m.register(model.GaugeType, "mstat_gcsys", fmt.Sprintf("%d", mstat.GCSys))
-	m.register(
+	reg(model.GaugeType, "GCSys", fmt.Sprintf("%d", mstat.GCSys))
+	reg(
 		model.GaugeType,
-		"mstat_heapalloc",
+		"HeapAlloc",
 		fmt.Sprintf("%d", mstat.HeapAlloc),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapidle",
+		"HeapIdle",
 		fmt.Sprintf("%d", mstat.HeapIdle),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapinuse",
+		"HeapInuse",
 		fmt.Sprintf("%d", mstat.HeapInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapobjects",
+		"HeapObjects",
 		fmt.Sprintf("%d", mstat.HeapObjects),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapreleased",
+		"HeapReleased",
 		fmt.Sprintf("%d", mstat.HeapReleased),
 	)
-	m.register(model.GaugeType, "mstat_heapsys", fmt.Sprintf("%d", mstat.HeapSys))
-	m.register(model.GaugeType, "mstat_lastgc", fmt.Sprintf("%d", mstat.LastGC))
-	m.register(model.GaugeType, "mstat_lookups", fmt.Sprintf("%d", mstat.Lookups))
-	m.register(
+	reg(model.GaugeType, "HeapSys", fmt.Sprintf("%d", mstat.HeapSys))
+	reg(model.GaugeType, "LastGC", fmt.Sprintf("%d", mstat.LastGC))
+	reg(model.GaugeType, "Lookups", fmt.Sprintf("%d", mstat.Lookups))
+	reg(
 		model.GaugeType,
-		"mstat_mcacheinuse",
+		"MCacheInuse",
 		fmt.Sprintf("%d", mstat.MCacheInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_mcachesys",
+		"MCacheSys",
 		fmt.Sprintf("%d", mstat.MCacheSys),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_mspaninuse",
+		"MSpanInuse",
 		fmt.Sprintf("%d", mstat.MSpanInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_mspansys",
+		"MSpanSys",
 		fmt.Sprintf("%d", mstat.MSpanSys),
 	)
-	m.register(model.GaugeType, "mstat_mallocs", fmt.Sprintf("%d", mstat.Mallocs))
-	m.register(model.GaugeType, "mstat_nextgc", fmt.Sprintf("%d", mstat.NextGC))
-	m.register(
+	reg(model.GaugeType, "Mallocs", fmt.Sprintf("%d", mstat.Mallocs))
+	reg(model.GaugeType, "NextGC", fmt.Sprintf("%d", mstat.NextGC))
+	reg(
 		model.GaugeType,
-		"mstat_numforcedgc",
+		"NumForcedGC",
 		fmt.Sprintf("%d", mstat.NumForcedGC),
 	)
-	m.register(model.GaugeType, "mstat_numgc", fmt.Sprintf("%d", mstat.NumGC))
-	m.register(
+	reg(model.GaugeType, "NumGC", fmt.Sprintf("%d", mstat.NumGC))
+	reg(
 		model.GaugeType,
-		"mstat_othersys",
+		"OtherSys",
 		fmt.Sprintf("%d", mstat.OtherSys),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_pausetotalns",
+		"PauseTotalNs",
 		fmt.Sprintf("%d", mstat.PauseTotalNs),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_stackinuse",
+		"StackInuse",
 		fmt.Sprintf("%d", mstat.StackInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_stacksys",
+		"StackSys",
 		fmt.Sprintf("%d", mstat.StackSys),
 	)
-	m.register(model.GaugeType, "mstat_sys", fmt.Sprintf("%d", mstat.Sys))
-	m.register(
+	reg(model.GaugeType, "Sys", fmt.Sprintf("%d", mstat.Sys))
+	reg(
 		model.GaugeType,
-		"mstat_totalalloc",
+		"TotalAlloc",
 		fmt.Sprintf("%d", mstat.TotalAlloc),
 	)
 
 	rvalue := rand.IntN(100)
-	m.register(model.GaugeType, "random_value", fmt.Sprintf("%d", rvalue))
+	reg(model.GaugeType, "RandomValue", fmt.Sprintf("%d", rvalue))
 
 	m.counter++
-	m.register(model.CounterType, "poll_count", fmt.Sprintf("%d", m.counter))
+	reg(model.CounterType, "PollCount", fmt.Sprintf("%d", m.counter))
 
 	return nil
 }
 
 func (m *Metrics) reportMetrics(serverURL string) {
+	updateURL := serverURL + "/update"
+
 	client := &http.Client{
 		Timeout: clientPostTimeout,
 	}
 
-	for name, metric := range m.Metrics {
-		metricURL := fmt.Sprintf(
-			"%s/update/%s/%s/%s",
-			serverURL,
-			metric.Type,
-			name,
-			metric.Value,
-		)
+	for _, metric := range m.Metrics {
+		data, err := json.Marshal(metric)
+		if err != nil {
+			return
+		}
 
-		resp, err := client.Post(metricURL, "text/plain", nil)
+		resp, err := client.Post(
+			updateURL,
+			"application/json",
+			bytes.NewReader(data),
+		)
 		if err != nil {
 			m.logger.Error(
 				"error reporting metrics",
-				"metric", name,
-				"error", err,
+				slog.Any("error", err),
 			)
 			return
 		}
@@ -169,22 +176,31 @@ func (m *Metrics) reportMetrics(serverURL string) {
 
 		if resp.StatusCode != http.StatusOK {
 			m.logger.Error(
-				"error reporting metrics",
-				"metric", name,
-				"error", err,
+				"non-OK status code",
+				slog.Int("status_code", resp.StatusCode),
 			)
 			return
 		}
 	}
 
-	m.counter = 0
+	m.reset()
 }
 
-func (m *Metrics) register(tp model.MetricType, name, value string) {
-	metric := &metric{
-		Type:  tp,
-		Value: value,
+func (m *Metrics) register(tp model.MetricType, name, value string) error {
+	metric := &model.Metrics{
+		ID:    name,
+		MType: string(tp),
 	}
 
-	m.Metrics[name] = *metric
+	if err := metric.SetValue(value); err != nil {
+		return err
+	}
+
+	m.Metrics[metric.ID] = metric
+	return nil
+}
+
+func (m *Metrics) reset() {
+	clear(m.Metrics)
+	m.counter = 0
 }

@@ -4,29 +4,52 @@ import (
 	"testing"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMetrics_register(t *testing.T) {
 	type fields struct {
 		counter int64
-		Metrics map[string]metric
+		Metrics map[string]*model.Metrics
 	}
+
 	type args struct {
 		tp    model.MetricType
 		name  string
 		value string
 	}
+
 	tests := []struct {
-		name   string
-		fields fields
-		args   args
+		name        string
+		fields      fields
+		args        args
+		expectedErr error
 	}{
 		{
-			name: "positive test",
+			name: "positive test #1",
 			fields: fields{
-				counter: 1,
-				Metrics: map[string]metric{},
+				counter: 0,
+				Metrics: map[string]*model.Metrics{},
 			},
+			args: args{
+				tp:    model.CounterType,
+				name:  "test_name",
+				value: "1",
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "metric type not set",
+			fields: fields{
+				counter: 0,
+				Metrics: map[string]*model.Metrics{},
+			},
+			args: args{
+				tp:    "",
+				name:  "test_name",
+				value: "1",
+			},
+			expectedErr: model.ErrMetricTypeNotSet,
 		},
 	}
 
@@ -36,7 +59,8 @@ func TestMetrics_register(t *testing.T) {
 				counter: tt.fields.counter,
 				Metrics: tt.fields.Metrics,
 			}
-			m.register(tt.args.tp, tt.args.name, tt.args.value)
+			err := m.register(tt.args.tp, tt.args.name, tt.args.value)
+			assert.Equal(t, tt.expectedErr, err)
 		})
 	}
 }
