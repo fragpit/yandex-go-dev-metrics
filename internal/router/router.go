@@ -1,11 +1,13 @@
 package router
 
 import (
+	"context"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
@@ -13,14 +15,18 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+const apiShutdownTimeout = 5 * time.Second
+
 type Router struct {
 	repo   repository.Repository
 	router http.Handler
+	logger *slog.Logger
 }
 
-func NewRouter(st repository.Repository) *Router {
+func NewRouter(l *slog.Logger, st repository.Repository) *Router {
 	r := &Router{
-		repo: st,
+		logger: l,
+		repo:   st,
 	}
 	r.router = r.initRoutes()
 	return r
@@ -50,8 +56,43 @@ func (rt *Router) initRoutes() http.Handler {
 	return r
 }
 
-func (rt *Router) Run(addr string) error {
-	return http.ListenAndServe(addr, rt.router)
+func (rt *Router) Run(ctx context.Context, addr string) error {
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      rt.router,
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
+	}
+
+	errChan := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			rt.logger.Error("failed to start server")
+			errChan <- err
+			return
+		}
+	}()
+
+	rt.logger.Debug("server started", slog.String("address", srv.Addr))
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return err
+		}
+	case <-ctx.Done():
+		ctx, cancel := context.WithTimeout(ctx, apiShutdownTimeout)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			rt.logger.Error("failed to shutdown service gracefully")
+			return err
+		}
+
+		rt.logger.Info("service shut down gracefully")
+	}
+
+	return nil
 }
 
 func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
@@ -66,7 +107,7 @@ func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
 
 	tpl, err := template.ParseFiles(templatePath)
 	if err != nil {
-		log.Printf("template parse error: %v", err)
+		rt.logger.Error("template parse error", slog.Any("error", err))
 		http.Error(resp, "template error", http.StatusInternalServerError)
 		return
 	}
@@ -74,7 +115,7 @@ func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
 	resp.Header().Set("Content-Type", "text/html")
 	resp.WriteHeader(http.StatusOK)
 	if err := tpl.Execute(resp, metrics); err != nil {
-		log.Printf("template execute error: %v", err)
+		rt.logger.Error("template execute error", slog.Any("error", err))
 		http.Error(resp, "template error", http.StatusInternalServerError)
 	}
 }
