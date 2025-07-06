@@ -169,9 +169,9 @@ func (m *Metrics) reportMetrics(serverURL string) {
 
 		if resp.StatusCode != http.StatusOK {
 			m.logger.Error(
-				"error reporting metrics",
+				"non-OK status code",
 				slog.String("metric", name),
-				slog.Any("error", err),
+				slog.Int("status_code", resp.StatusCode),
 			)
 			return
 		}

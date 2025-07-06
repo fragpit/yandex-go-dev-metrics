@@ -95,7 +95,6 @@ func NewAgentConfig() *AgentConfig {
 				slog.Any("error", err),
 			)
 			os.Exit(1)
-
 		}
 	}
 
