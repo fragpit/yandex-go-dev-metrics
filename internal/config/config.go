@@ -73,7 +73,7 @@ func NewAgentConfig() *AgentConfig {
 	finalReportInterval := *reportInterval
 	if envReportInterval := os.Getenv("REPORT_INTERVAL"); envReportInterval != "" {
 		var err error
-		finalPollInterval, err = strconv.Atoi(envReportInterval)
+		finalReportInterval, err = strconv.Atoi(envReportInterval)
 		if err != nil {
 			slog.Error(
 				"error converting parameter",
