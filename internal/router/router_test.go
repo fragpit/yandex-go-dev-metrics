@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -174,7 +176,8 @@ func TestRouter_setMetric(t *testing.T) {
 
 func TestRouter_EmptyMetricName404(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
-	r := NewRouter(nil, st)
+	l := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	r := NewRouter(l, st)
 
 	ts := httptest.NewServer(r.router)
 	defer ts.Close()

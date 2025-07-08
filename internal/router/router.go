@@ -12,7 +12,6 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 )
 
 const apiShutdownTimeout = 5 * time.Second
@@ -34,7 +33,7 @@ func NewRouter(l *slog.Logger, st repository.Repository) *Router {
 
 func (rt *Router) initRoutes() http.Handler {
 	r := chi.NewMux()
-	r.Use(middleware.Logger)
+	r.Use(rt.slogMiddleware)
 
 	r.Get("/", rt.rootHandler)
 
@@ -163,4 +162,41 @@ func (rt Router) setMetric(resp http.ResponseWriter, req *http.Request) {
 
 	resp.WriteHeader(http.StatusOK)
 	resp.Header().Set("Content-Type", "text/plain")
+}
+
+func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		ww := &responseWriter{ResponseWriter: w, statusCode: 200}
+
+		h.ServeHTTP(ww, r)
+
+		rt.logger.Info("request completed",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", ww.statusCode),
+			slog.Int("resp_size", ww.size),
+			slog.Duration("duration", time.Since(start)),
+			slog.String("remote_addr", r.RemoteAddr),
+		)
+	})
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	size       int
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	size, err := rw.ResponseWriter.Write(b)
+	rw.size += size
+
+	return size, err
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }
