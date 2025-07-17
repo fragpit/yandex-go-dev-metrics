@@ -155,13 +155,14 @@ func (m *Metrics) reportMetrics(serverURL string) {
 		Timeout: clientPostTimeout,
 	}
 
+	var buf bytes.Buffer
 	for _, metric := range m.Metrics {
 		data, err := json.Marshal(metric)
 		if err != nil {
 			return
 		}
 
-		var buf bytes.Buffer
+		buf.Reset()
 		zw := gzip.NewWriter(&buf)
 		defer zw.Close()
 

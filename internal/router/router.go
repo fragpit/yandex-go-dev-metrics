@@ -88,7 +88,7 @@ func (rt *Router) Run(ctx context.Context, addr string) error {
 			return err
 		}
 	case <-ctx.Done():
-		ctx, cancel := context.WithTimeout(ctx, apiShutdownTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), apiShutdownTimeout)
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {

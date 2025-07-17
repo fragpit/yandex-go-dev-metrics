@@ -124,8 +124,6 @@ func (s *Cacher) saveMetrics(ctx context.Context) {
 		return
 	}
 	s.logger.Info("metrics saved", slog.Int("count", len(metricsList)))
-
-	s.logger.Info("all metrics saved")
 }
 
 func runPeriodically(

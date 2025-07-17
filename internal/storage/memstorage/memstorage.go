@@ -44,6 +44,7 @@ func (s *MemoryStorage) UpdateMetric(metric *model.Metrics) error {
 
 		if metric.MType == string(model.GaugeType) {
 			s.Metrics[metric.ID] = metric
+			return nil
 		}
 
 		if metric.MType == string(model.CounterType) {
