@@ -1,13 +1,15 @@
 package main
 
 import (
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/server"
 )
 
 func main() {
 	if err := server.Run(); err != nil {
-		log.Fatalf("server fatal error: %v", err)
+		slog.Error("server fatal error", slog.Any("error", err))
+		os.Exit(1)
 	}
 }

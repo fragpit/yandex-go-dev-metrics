@@ -31,10 +31,9 @@ func (s *MemoryStorage) GetMetric(name string) (*model.Metrics, error) {
 	} else {
 		return nil, errors.New("metric id not found")
 	}
-
 }
 
-func (s *MemoryStorage) SetMetric(metric *model.Metrics, value string) error {
+func (s *MemoryStorage) UpdateMetric(metric *model.Metrics) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -42,13 +41,19 @@ func (s *MemoryStorage) SetMetric(metric *model.Metrics, value string) error {
 		if m.MType != metric.MType {
 			return errors.New("metric already exist with another type")
 		}
-		if err := m.SetMetricValue(value); err != nil {
-			return err
+
+		if metric.MType == string(model.GaugeType) {
+			s.Metrics[metric.ID] = metric
+		}
+
+		if metric.MType == string(model.CounterType) {
+			if m.Delta == nil {
+				m.Delta = metric.Delta
+			} else {
+				*m.Delta += *metric.Delta
+			}
 		}
 	} else {
-		if err := metric.SetMetricValue(value); err != nil {
-			return err
-		}
 		s.Metrics[metric.ID] = metric
 	}
 
