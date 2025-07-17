@@ -132,7 +132,7 @@ func NewServerConfig() *ServerConfig {
 	flag.Parse()
 
 	finalLogLevel := *logLevel
-	if env := os.Getenv("DEBUG"); env != "" {
+	if env := os.Getenv("LOG_LEVEL"); env != "" {
 		finalLogLevel = env
 	}
 

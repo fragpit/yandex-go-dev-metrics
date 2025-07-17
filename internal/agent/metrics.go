@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -160,11 +161,44 @@ func (m *Metrics) reportMetrics(serverURL string) {
 			return
 		}
 
-		resp, err := client.Post(
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		defer zw.Close()
+
+		_, err = zw.Write(data)
+		if err != nil {
+			m.logger.Error(
+				"error writing compressed data",
+				slog.Any("error", err),
+			)
+			return
+		}
+
+		err = zw.Close()
+		if err != nil {
+			m.logger.Error(
+				"error closing gzip writer",
+				slog.Any("error", err),
+			)
+			return
+		}
+
+		req, err := http.NewRequest(
+			http.MethodPost,
 			updateURL,
-			"application/json",
-			bytes.NewReader(data),
+			&buf,
 		)
+		if err != nil {
+			m.logger.Error(
+				"error creating request",
+				slog.Any("error", err),
+			)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", "gzip")
+
+		resp, err := client.Do(req)
 		if err != nil {
 			m.logger.Error(
 				"error reporting metrics",

@@ -14,6 +14,7 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 const apiShutdownTimeout = 5 * time.Second
@@ -35,7 +36,17 @@ func NewRouter(l *slog.Logger, st repository.Repository) *Router {
 
 func (rt *Router) initRoutes() http.Handler {
 	r := chi.NewMux()
+
+	compressForTypes := []string{
+		"text/html",
+		"application/json",
+	}
+
+	compressor := middleware.NewCompressor(5, compressForTypes...)
+
 	r.Use(rt.slogMiddleware)
+	r.Use(compressor.Handler)
+	r.Use(rt.decompressMiddleware)
 
 	r.Get("/", rt.rootHandler)
 
@@ -94,6 +105,7 @@ func (rt *Router) Run(ctx context.Context, addr string) error {
 func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
 	metrics, err := rt.repo.GetMetrics()
 	if err != nil {
+		rt.logger.Error("error retrieving metrics", slog.Any("error", err))
 		http.Error(resp, "error retrieving metrics", http.StatusInternalServerError)
 		return
 	}
@@ -121,6 +133,10 @@ func (rt Router) getMetricJSON(resp http.ResponseWriter, req *http.Request) {
 
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
+		rt.logger.Error(
+			"error reading request body",
+			slog.Any("error", err),
+		)
 		http.Error(
 			resp,
 			"error reading request body",
@@ -131,34 +147,59 @@ func (rt Router) getMetricJSON(resp http.ResponseWriter, req *http.Request) {
 
 	var metric *model.Metrics
 	if err := json.Unmarshal(body, &metric); err != nil {
+		rt.logger.Error(
+			"error parsing request body",
+			slog.Any("error", err),
+		)
 		http.Error(resp, "error parsing request body", http.StatusBadRequest)
 		return
 	}
 
 	if !model.ValidateType(metric.MType) {
+		rt.logger.Error(
+			"incorrect metric type",
+			slog.String("type", metric.MType),
+		)
 		http.Error(resp, "incorrect metric type", http.StatusBadRequest)
 		return
 	}
 
 	if metric.ID == "" {
+		rt.logger.Error(
+			"metric name is empty",
+			slog.Any("metric", metric),
+		)
 		http.Error(resp, "metric name is empty", http.StatusBadRequest)
 		return
 	}
 
-	metric, err = rt.repo.GetMetric(metric.ID)
+	m, err := rt.repo.GetMetric(metric.ID)
 	if err != nil {
+		rt.logger.Error(
+			"error retrieving metric",
+			slog.Any("error", err),
+			slog.String("metric_id", metric.ID),
+		)
 		http.Error(resp, "metric not found", http.StatusNotFound)
 		return
 	}
 
-	data, err := json.Marshal(metric)
+	data, err := json.Marshal(m)
 	if err != nil {
+		rt.logger.Error(
+			"error marshalling metric",
+			slog.Any("error", err),
+		)
 		http.Error(resp, "error marshalling metric", http.StatusInternalServerError)
 		return
 	}
 
 	resp.WriteHeader(http.StatusOK)
 	if _, err := resp.Write(data); err != nil {
+		rt.logger.Error(
+			"error writing response",
+			slog.Any("error", err),
+		)
 		http.Error(resp, "error writing response", http.StatusInternalServerError)
 		return
 	}
@@ -174,41 +215,35 @@ func (rt Router) updateMetricJSON(resp http.ResponseWriter, req *http.Request) {
 
 	var metric *model.Metrics
 	if err := json.Unmarshal(body, &metric); err != nil {
+		rt.logger.Error(
+			"error parsing request body",
+			slog.Any("error", err),
+		)
 		http.Error(resp, "error setting metric", http.StatusInternalServerError)
 		return
 	}
 
 	if metric.ID == "" {
+		rt.logger.Error(
+			"metric name is empty",
+			slog.Any("metric", metric),
+		)
 		http.Error(resp, "metric name is empty", http.StatusNotFound)
 		return
 	}
 
 	if err := rt.repo.UpdateMetric(metric); err != nil {
+		rt.logger.Error(
+			"error updating metric",
+			slog.Any("error", err),
+			slog.Any("metric", metric),
+		)
 		http.Error(resp, "error setting metric", http.StatusInternalServerError)
 		return
 	}
 
 	resp.WriteHeader(http.StatusOK)
 	resp.Header().Set("Content-Type", "application/json")
-}
-
-func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		ww := &responseWriter{ResponseWriter: w, statusCode: 200}
-
-		h.ServeHTTP(ww, r)
-
-		rt.logger.Info("request completed",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Int("status", ww.statusCode),
-			slog.Int("resp_size", ww.size),
-			slog.Duration("duration", time.Since(start)),
-			slog.String("remote_addr", r.RemoteAddr),
-		)
-	})
 }
 
 type responseWriter struct {

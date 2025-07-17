@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -140,7 +141,9 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
-			r := NewRouter(nil, st)
+
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
 
 			r.updateMetricJSON(rr, req)
 			res := rr.Result()
@@ -270,7 +273,9 @@ func TestRouter_getMetricJSON(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
-			r := NewRouter(nil, st)
+
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
 
 			r.getMetricJSON(rr, req)
 			res := rr.Result()
@@ -294,20 +299,6 @@ func TestRouter_getMetricJSON(t *testing.T) {
 	}
 }
 
-func TestRouter_EmptyMetricName404(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
-	l := slog.New(slog.DiscardHandler)
-	r := NewRouter(l, st)
-
-	ts := httptest.NewServer(r.router)
-	defer ts.Close()
-
-	resp, err := http.Post(ts.URL+"/update/counter", "text/plain", nil)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-}
-
 func TestRouter_TestRoutes(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
@@ -317,11 +308,12 @@ func TestRouter_TestRoutes(t *testing.T) {
 	defer ts.Close()
 
 	tests := []struct {
-		name        string
-		endpoint    string
-		contentType string
-		code        int
-		data        model.Metrics
+		name         string
+		endpoint     string
+		contentType  string
+		code         int
+		data         model.Metrics
+		isCompressed bool
 	}{
 		{
 			name:        "valid endpoint /update",
@@ -375,22 +367,76 @@ func TestRouter_TestRoutes(t *testing.T) {
 				MType: string(model.CounterType),
 			},
 		},
+		{
+			name:        "empty metric name",
+			endpoint:    "/update/counter",
+			contentType: "application/json",
+			code:        http.StatusNotFound,
+		},
+		{
+			name:         "valid endpoint /update compressed",
+			endpoint:     "/update",
+			contentType:  "application/json",
+			code:         http.StatusOK,
+			isCompressed: true,
+			data: model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.GaugeType),
+				Value: float64Ptr(42.0),
+			},
+		},
+		{
+			name:         "valid endpoint /value compressed",
+			endpoint:     "/value",
+			contentType:  "application/json",
+			code:         http.StatusOK,
+			isCompressed: true,
+			data: model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.GaugeType),
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body, err := json.Marshal(tt.data)
-			require.NoError(t, err)
-			bodyReader := bytes.NewReader(body)
+			client := &http.Client{}
 
-			resp, err := http.Post(ts.URL+tt.endpoint, tt.contentType, bodyReader)
+			data, err := json.Marshal(tt.data)
+			require.NoError(t, err)
+
+			var body io.Reader
+			if tt.isCompressed {
+				var buf bytes.Buffer
+				zw := gzip.NewWriter(&buf)
+				_, err = zw.Write(data)
+				require.NoError(t, err)
+				err = zw.Close()
+				require.NoError(t, err)
+				body = bytes.NewReader(buf.Bytes())
+			} else {
+				body = bytes.NewReader(data)
+			}
+
+			req, err := http.NewRequest(
+				http.MethodPost,
+				ts.URL+tt.endpoint,
+				body,
+			)
+			require.NoError(t, err)
+
+			req.Header.Set("Content-Type", tt.contentType)
+			if tt.isCompressed {
+				req.Header.Set("Content-Encoding", "gzip")
+			}
+
+			resp, err := client.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
 			assert.Equal(t, tt.code, resp.StatusCode)
 		})
 	}
-
 }
 
 func TestRouter_updateMetric(t *testing.T) {
@@ -499,7 +545,8 @@ func TestRouter_updateMetric(t *testing.T) {
 				nil,
 			)
 			rr := httptest.NewRecorder()
-			r := NewRouter(nil, st)
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -601,7 +648,8 @@ func TestRouter_getMetric(t *testing.T) {
 			)
 
 			rr := httptest.NewRecorder()
-			r := NewRouter(nil, st)
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
