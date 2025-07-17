@@ -63,3 +63,21 @@ func (s *MemoryStorage) UpdateMetric(metric *model.Metrics) error {
 func (s *MemoryStorage) GetMetrics() (map[string]*model.Metrics, error) {
 	return s.Metrics, nil
 }
+
+func (s *MemoryStorage) Initialize(metrics []*model.Metrics) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	for _, metric := range metrics {
+		if metric == nil || metric.ID == "" {
+			continue
+		}
+		s.Metrics[metric.ID] = metric
+	}
+
+	return nil
+}
