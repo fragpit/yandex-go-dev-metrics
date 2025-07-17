@@ -128,7 +128,7 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 				Delta: int64Ptr(200),
 			},
 			want: want{
-				code:        http.StatusNotFound,
+				code:        http.StatusBadRequest,
 				contentType: "application/json",
 			},
 		},
@@ -184,7 +184,7 @@ func TestRouter_getMetricJSON(t *testing.T) {
 	}
 
 	for _, metric := range metricsStore {
-		err := st.UpdateMetric(&metric)
+		err := st.SetOrUpdateMetric(context.Background(), &metric)
 		require.NoError(t, err)
 	}
 
@@ -608,7 +608,7 @@ func TestRouter_getMetric(t *testing.T) {
 	err = metric.SetValue("42")
 	require.NoError(t, err)
 
-	err = st.UpdateMetric(&metric)
+	err = st.SetOrUpdateMetric(context.Background(), &metric)
 	require.NoError(t, err)
 
 	type want struct {

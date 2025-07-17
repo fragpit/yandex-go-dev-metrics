@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/go-resty/resty/v2"
 )
 
 const (
@@ -151,54 +152,28 @@ func (m *Metrics) pollMetrics() error {
 func (m *Metrics) reportMetrics(serverURL string) {
 	updateURL := serverURL + "/update"
 
-	client := &http.Client{
-		Timeout: clientPostTimeout,
-	}
+	client := resty.New()
+	client.
+		SetTimeout(clientPostTimeout).
+		SetRetryCount(2).
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Content-Encoding", "gzip").
+		OnBeforeRequest(gzipRequestMiddleware())
 
 	for _, metric := range m.Metrics {
 		data, err := json.Marshal(metric)
 		if err != nil {
-			return
-		}
-
-		var buf bytes.Buffer
-		zw := gzip.NewWriter(&buf)
-		defer zw.Close()
-
-		_, err = zw.Write(data)
-		if err != nil {
 			m.logger.Error(
-				"error writing compressed data",
+				"error marshaling metric",
+				slog.String("metric_id", metric.ID),
 				slog.Any("error", err),
 			)
-			return
+			continue
 		}
 
-		err = zw.Close()
-		if err != nil {
-			m.logger.Error(
-				"error closing gzip writer",
-				slog.Any("error", err),
-			)
-			return
-		}
-
-		req, err := http.NewRequest(
-			http.MethodPost,
-			updateURL,
-			&buf,
-		)
-		if err != nil {
-			m.logger.Error(
-				"error creating request",
-				slog.Any("error", err),
-			)
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Content-Encoding", "gzip")
-
-		resp, err := client.Do(req)
+		resp, err := client.R().
+			SetBody(data).
+			Post(updateURL)
 		if err != nil {
 			m.logger.Error(
 				"error reporting metrics",
@@ -206,12 +181,11 @@ func (m *Metrics) reportMetrics(serverURL string) {
 			)
 			return
 		}
-		defer resp.Body.Close()
 
-		if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode() != http.StatusOK {
 			m.logger.Error(
 				"non-OK status code",
-				slog.Int("status_code", resp.StatusCode),
+				slog.Int("status_code", resp.StatusCode()),
 			)
 			return
 		}
@@ -237,4 +211,38 @@ func (m *Metrics) register(tp model.MetricType, name, value string) error {
 func (m *Metrics) reset() {
 	clear(m.Metrics)
 	m.counter = 0
+}
+
+func gzipRequestMiddleware() resty.RequestMiddleware {
+	return func(c *resty.Client, req *resty.Request) error {
+		if req.Body == nil {
+			return nil
+		}
+
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		defer zw.Close()
+
+		bodyBytes, ok := req.Body.([]byte)
+		if !ok {
+			data, err := json.Marshal(req.Body)
+			if err != nil {
+				return err
+			}
+			bodyBytes = data
+		}
+
+		if _, err := zw.Write(bodyBytes); err != nil {
+			return err
+		}
+
+		if err := zw.Close(); err != nil {
+			return err
+		}
+
+		req.SetBody(buf.Bytes())
+		req.SetHeader("Content-Encoding", "gzip")
+
+		return nil
+	}
 }

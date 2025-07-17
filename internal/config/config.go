@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type AgentConfig struct {
@@ -112,8 +113,11 @@ func NewAgentConfig() *AgentConfig {
 }
 
 type ServerConfig struct {
-	LogLevel string `yaml:"log_level"`
-	Address  string `yaml:"address"`
+	LogLevel      string        `yaml:"log_level"`
+	Address       string        `yaml:"address"`
+	StoreInterval time.Duration `yaml:"store_interval"`
+	FileStorePath string        `yaml:"file_store_path"`
+	Restore       bool          `yaml:"restore"`
 }
 
 func NewServerConfig() *ServerConfig {
@@ -129,6 +133,24 @@ func NewServerConfig() *ServerConfig {
 		"address to listen on (по умолчанию localhost:8080)",
 	)
 
+	storeInterval := flag.Int(
+		"i",
+		300,
+		"частота сохранения метрик в файл в секундах (по умолчанию 300 секунд)",
+	)
+
+	fileStorePath := flag.String(
+		"f",
+		"/tmp/metrics/metrics.json",
+		"путь к файлу для сохранения метрик (по умолчанию metrics)",
+	)
+
+	restore := flag.Bool(
+		"r",
+		false,
+		"восстанавливать метрики из файла при запуске сервера (по умолчанию false)",
+	)
+
 	flag.Parse()
 
 	finalLogLevel := *logLevel
@@ -141,8 +163,45 @@ func NewServerConfig() *ServerConfig {
 		finalAddress = env
 	}
 
+	finalStoreInterval := *storeInterval
+	if envStoreInterval := os.Getenv("STORE_INTERVAL"); envStoreInterval != "" {
+		var err error
+		finalStoreInterval, err = strconv.Atoi(envStoreInterval)
+		if err != nil {
+			slog.Error(
+				"error converting parameter",
+				slog.String("parameter", "STORE_INTERVAL"),
+				slog.Any("error", err),
+			)
+			os.Exit(1)
+		}
+	}
+	storeIntervalDuration := time.Duration(finalStoreInterval) * time.Second
+
+	finalFileStorePath := *fileStorePath
+	if envFileStorePath := os.Getenv("FILE_STORAGE_PATH"); envFileStorePath != "" {
+		finalFileStorePath = envFileStorePath
+	}
+
+	finalRestore := *restore
+	if envRestore := os.Getenv("RESTORE"); envRestore != "" {
+		var err error
+		finalRestore, err = strconv.ParseBool(envRestore)
+		if err != nil {
+			slog.Error(
+				"error converting parameter",
+				slog.String("parameter", "RESTORE"),
+				slog.Any("error", err),
+			)
+			os.Exit(1)
+		}
+	}
+
 	return &ServerConfig{
-		LogLevel: finalLogLevel,
-		Address:  finalAddress,
+		LogLevel:      finalLogLevel,
+		Address:       finalAddress,
+		StoreInterval: storeIntervalDuration,
+		FileStorePath: finalFileStorePath,
+		Restore:       finalRestore,
 	}
 }

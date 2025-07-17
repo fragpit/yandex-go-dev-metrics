@@ -13,14 +13,25 @@ func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
+		var err error
 		var bodyBytes []byte
 		var decompressedBody []byte
 		if r.Body != nil {
-			bodyBytes, _ = io.ReadAll(r.Body)
-			// Restore the body for further use
+			bodyBytes, err = io.ReadAll(r.Body)
+			if err != nil {
+				rt.logger.Error(
+					"error reading request body",
+					slog.Any("error", err),
+				)
+				http.Error(
+					w,
+					"error reading request body",
+					http.StatusInternalServerError,
+				)
+				return
+			}
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-			// If gzipped, decompress to another variable
 			if r.Header.Get("Content-Encoding") == "gzip" &&
 				len(bodyBytes) > 0 {
 				gz, err := gzip.NewReader(

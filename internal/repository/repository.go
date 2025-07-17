@@ -1,9 +1,13 @@
 package repository
 
-import "github.com/fragpit/yandex-go-dev-metrics/internal/model"
+import (
+	"context"
+
+	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+)
 
 type Repository interface {
-	GetMetrics() (map[string]*model.Metrics, error)
-	GetMetric(name string) (*model.Metrics, error)
-	UpdateMetric(metric *model.Metrics) error
+	GetMetrics(ctx context.Context) (map[string]*model.Metrics, error)
+	GetMetric(ctx context.Context, name string) (*model.Metrics, error)
+	SetOrUpdateMetric(ctx context.Context, metric *model.Metrics) error
 }

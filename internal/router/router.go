@@ -103,7 +103,7 @@ func (rt *Router) Run(ctx context.Context, addr string) error {
 }
 
 func (rt Router) rootHandler(resp http.ResponseWriter, req *http.Request) {
-	metrics, err := rt.repo.GetMetrics()
+	metrics, err := rt.repo.GetMetrics(req.Context())
 	if err != nil {
 		rt.logger.Error("error retrieving metrics", slog.Any("error", err))
 		http.Error(resp, "error retrieving metrics", http.StatusInternalServerError)
@@ -140,7 +140,7 @@ func (rt Router) getMetricJSON(resp http.ResponseWriter, req *http.Request) {
 		http.Error(
 			resp,
 			"error reading request body",
-			http.StatusInternalServerError,
+			http.StatusBadRequest,
 		)
 		return
 	}
@@ -173,7 +173,7 @@ func (rt Router) getMetricJSON(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	m, err := rt.repo.GetMetric(metric.ID)
+	m, err := rt.repo.GetMetric(req.Context(), metric.ID)
 	if err != nil {
 		rt.logger.Error(
 			"error retrieving metric",
@@ -219,7 +219,7 @@ func (rt Router) updateMetricJSON(resp http.ResponseWriter, req *http.Request) {
 			"error parsing request body",
 			slog.Any("error", err),
 		)
-		http.Error(resp, "error setting metric", http.StatusInternalServerError)
+		http.Error(resp, "error setting metric", http.StatusBadRequest)
 		return
 	}
 
@@ -228,11 +228,11 @@ func (rt Router) updateMetricJSON(resp http.ResponseWriter, req *http.Request) {
 			"metric name is empty",
 			slog.Any("metric", metric),
 		)
-		http.Error(resp, "metric name is empty", http.StatusNotFound)
+		http.Error(resp, "metric name is empty", http.StatusBadRequest)
 		return
 	}
 
-	if err := rt.repo.UpdateMetric(metric); err != nil {
+	if err := rt.repo.SetOrUpdateMetric(req.Context(), metric); err != nil {
 		rt.logger.Error(
 			"error updating metric",
 			slog.Any("error", err),
@@ -289,7 +289,7 @@ func (rt Router) updateMetric(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if err := rt.repo.UpdateMetric(metric); err != nil {
+	if err := rt.repo.SetOrUpdateMetric(req.Context(), metric); err != nil {
 		http.Error(resp, "error setting metric", http.StatusInternalServerError)
 		return
 	}
@@ -301,7 +301,7 @@ func (rt Router) updateMetric(resp http.ResponseWriter, req *http.Request) {
 func (rt Router) getMetric(resp http.ResponseWriter, req *http.Request) {
 	metricName := chi.URLParam(req, "name")
 
-	metric, err := rt.repo.GetMetric(metricName)
+	metric, err := rt.repo.GetMetric(req.Context(), metricName)
 	if err != nil {
 		http.Error(resp, "metric not found", http.StatusNotFound)
 		return
