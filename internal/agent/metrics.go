@@ -164,7 +164,6 @@ func (m *Metrics) reportMetrics(serverURL string) {
 
 		buf.Reset()
 		zw := gzip.NewWriter(&buf)
-		defer zw.Close()
 
 		_, err = zw.Write(data)
 		if err != nil {
@@ -172,6 +171,7 @@ func (m *Metrics) reportMetrics(serverURL string) {
 				"error writing compressed data",
 				slog.Any("error", err),
 			)
+			zw.Close()
 			return
 		}
 
