@@ -140,7 +140,7 @@ func (rt Router) getMetricJSON(resp http.ResponseWriter, req *http.Request) {
 		http.Error(
 			resp,
 			"error reading request body",
-			http.StatusInternalServerError,
+			http.StatusBadRequest,
 		)
 		return
 	}
