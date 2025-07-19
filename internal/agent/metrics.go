@@ -1,184 +1,248 @@
 package agent
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"runtime"
 	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/go-resty/resty/v2"
 )
 
 const (
 	clientPostTimeout = 5 * time.Second
 )
 
-type metric struct {
-	Type  model.MetricType
-	Value string
-}
-
 type Metrics struct {
+	logger  *slog.Logger
 	counter int64
-	Metrics map[string]metric
+	Metrics map[string]*model.Metrics
 }
 
-func NewMetrics() *Metrics {
+func NewMetrics(l *slog.Logger) *Metrics {
 	return &Metrics{
-		Metrics: make(map[string]metric),
+		logger:  l,
+		Metrics: make(map[string]*model.Metrics),
 	}
 }
 
 func (m *Metrics) pollMetrics() error {
-	log.Println("Polling metrics at", time.Now().Format("15:04:05"))
-
 	var mstat runtime.MemStats
 	runtime.ReadMemStats(&mstat)
 
-	m.register(model.GaugeType, "mstat_alloc", fmt.Sprintf("%d", mstat.Alloc))
-	m.register(
+	reg := func(tp model.MetricType, name, value string) {
+		if err := m.register(tp, name, value); err != nil {
+			m.logger.Error("failed to register metric",
+				slog.String("name", name),
+				slog.Any("error", err))
+		}
+	}
+
+	reg(model.GaugeType, "Alloc", fmt.Sprintf("%d", mstat.Alloc))
+	reg(
 		model.GaugeType,
-		"mstat_buckhashsys",
+		"BuckHashSys",
 		fmt.Sprintf("%d", mstat.BuckHashSys),
 	)
-	m.register(model.GaugeType, "mstat_frees", fmt.Sprintf("%d", mstat.Frees))
-	m.register(
+	reg(model.GaugeType, "Frees", fmt.Sprintf("%d", mstat.Frees))
+	reg(
 		model.GaugeType,
-		"mstat_gccpufraction",
+		"GCCPUFraction",
 		fmt.Sprintf("%f", mstat.GCCPUFraction),
 	)
-	m.register(model.GaugeType, "mstat_gcsys", fmt.Sprintf("%d", mstat.GCSys))
-	m.register(
+	reg(model.GaugeType, "GCSys", fmt.Sprintf("%d", mstat.GCSys))
+	reg(
 		model.GaugeType,
-		"mstat_heapalloc",
+		"HeapAlloc",
 		fmt.Sprintf("%d", mstat.HeapAlloc),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapidle",
+		"HeapIdle",
 		fmt.Sprintf("%d", mstat.HeapIdle),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapinuse",
+		"HeapInuse",
 		fmt.Sprintf("%d", mstat.HeapInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapobjects",
+		"HeapObjects",
 		fmt.Sprintf("%d", mstat.HeapObjects),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_heapreleased",
+		"HeapReleased",
 		fmt.Sprintf("%d", mstat.HeapReleased),
 	)
-	m.register(model.GaugeType, "mstat_heapsys", fmt.Sprintf("%d", mstat.HeapSys))
-	m.register(model.GaugeType, "mstat_lastgc", fmt.Sprintf("%d", mstat.LastGC))
-	m.register(model.GaugeType, "mstat_lookups", fmt.Sprintf("%d", mstat.Lookups))
-	m.register(
+	reg(model.GaugeType, "HeapSys", fmt.Sprintf("%d", mstat.HeapSys))
+	reg(model.GaugeType, "LastGC", fmt.Sprintf("%d", mstat.LastGC))
+	reg(model.GaugeType, "Lookups", fmt.Sprintf("%d", mstat.Lookups))
+	reg(
 		model.GaugeType,
-		"mstat_mcacheinuse",
+		"MCacheInuse",
 		fmt.Sprintf("%d", mstat.MCacheInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_mcachesys",
+		"MCacheSys",
 		fmt.Sprintf("%d", mstat.MCacheSys),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_mspaninuse",
+		"MSpanInuse",
 		fmt.Sprintf("%d", mstat.MSpanInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_mspansys",
+		"MSpanSys",
 		fmt.Sprintf("%d", mstat.MSpanSys),
 	)
-	m.register(model.GaugeType, "mstat_mallocs", fmt.Sprintf("%d", mstat.Mallocs))
-	m.register(model.GaugeType, "mstat_nextgc", fmt.Sprintf("%d", mstat.NextGC))
-	m.register(
+	reg(model.GaugeType, "Mallocs", fmt.Sprintf("%d", mstat.Mallocs))
+	reg(model.GaugeType, "NextGC", fmt.Sprintf("%d", mstat.NextGC))
+	reg(
 		model.GaugeType,
-		"mstat_numforcedgc",
+		"NumForcedGC",
 		fmt.Sprintf("%d", mstat.NumForcedGC),
 	)
-	m.register(model.GaugeType, "mstat_numgc", fmt.Sprintf("%d", mstat.NumGC))
-	m.register(
+	reg(model.GaugeType, "NumGC", fmt.Sprintf("%d", mstat.NumGC))
+	reg(
 		model.GaugeType,
-		"mstat_othersys",
+		"OtherSys",
 		fmt.Sprintf("%d", mstat.OtherSys),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_pausetotalns",
+		"PauseTotalNs",
 		fmt.Sprintf("%d", mstat.PauseTotalNs),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_stackinuse",
+		"StackInuse",
 		fmt.Sprintf("%d", mstat.StackInuse),
 	)
-	m.register(
+	reg(
 		model.GaugeType,
-		"mstat_stacksys",
+		"StackSys",
 		fmt.Sprintf("%d", mstat.StackSys),
 	)
-	m.register(model.GaugeType, "mstat_sys", fmt.Sprintf("%d", mstat.Sys))
-	m.register(
+	reg(model.GaugeType, "Sys", fmt.Sprintf("%d", mstat.Sys))
+	reg(
 		model.GaugeType,
-		"mstat_totalalloc",
+		"TotalAlloc",
 		fmt.Sprintf("%d", mstat.TotalAlloc),
 	)
 
 	rvalue := rand.IntN(100)
-	m.register(model.GaugeType, "random_value", fmt.Sprintf("%d", rvalue))
+	reg(model.GaugeType, "RandomValue", fmt.Sprintf("%d", rvalue))
 
 	m.counter++
-	m.register(model.CounterType, "poll_count", fmt.Sprintf("%d", m.counter))
+	reg(model.CounterType, "PollCount", fmt.Sprintf("%d", m.counter))
 
 	return nil
 }
 
 func (m *Metrics) reportMetrics(serverURL string) {
-	log.Println("Reporting metrics at", time.Now().Format("15:04:05"))
+	updateURL := serverURL + "/update"
 
-	client := &http.Client{
-		Timeout: clientPostTimeout,
-	}
+	client := resty.New()
+	client.
+		SetTimeout(clientPostTimeout).
+		SetRetryCount(2).
+		SetHeader("Content-Type", "application/json").
+		SetHeader("Content-Encoding", "gzip").
+		OnBeforeRequest(gzipRequestMiddleware())
 
-	for name, metric := range m.Metrics {
-		metricURL := fmt.Sprintf(
-			"%s/update/%s/%s/%s",
-			serverURL,
-			metric.Type,
-			name,
-			metric.Value,
-		)
-
-		resp, err := client.Post(metricURL, "text/plain", nil)
+	for _, metric := range m.Metrics {
+		data, err := json.Marshal(metric)
 		if err != nil {
-			log.Printf("error reporting metrics %s: %v", name, err)
+			m.logger.Error(
+				"error marshaling metric",
+				slog.String("metric_id", metric.ID),
+				slog.Any("error", err),
+			)
+			continue
+		}
+
+		resp, err := client.R().
+			SetBody(data).
+			Post(updateURL)
+		if err != nil {
+			m.logger.Error(
+				"error reporting metrics",
+				slog.Any("error", err),
+			)
 			return
 		}
-		defer resp.Body.Close()
 
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("error reporting metrics %s: %v", name, err)
+		if resp.StatusCode() != http.StatusOK {
+			m.logger.Error(
+				"non-OK status code",
+				slog.Int("status_code", resp.StatusCode()),
+			)
 			return
 		}
 	}
 
+	m.reset()
+}
+
+func (m *Metrics) register(tp model.MetricType, name, value string) error {
+	metric := &model.Metrics{
+		ID:    name,
+		MType: string(tp),
+	}
+
+	if err := metric.SetValue(value); err != nil {
+		return err
+	}
+
+	m.Metrics[metric.ID] = metric
+	return nil
+}
+
+func (m *Metrics) reset() {
+	clear(m.Metrics)
 	m.counter = 0
 }
 
-func (m *Metrics) register(tp model.MetricType, name, value string) {
-	metric := &metric{
-		Type:  tp,
-		Value: value,
-	}
+func gzipRequestMiddleware() resty.RequestMiddleware {
+	return func(c *resty.Client, req *resty.Request) error {
+		if req.Body == nil {
+			return nil
+		}
 
-	m.Metrics[name] = *metric
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		defer zw.Close()
+
+		bodyBytes, ok := req.Body.([]byte)
+		if !ok {
+			data, err := json.Marshal(req.Body)
+			if err != nil {
+				return err
+			}
+			bodyBytes = data
+		}
+
+		if _, err := zw.Write(bodyBytes); err != nil {
+			return err
+		}
+
+		if err := zw.Close(); err != nil {
+			return err
+		}
+
+		req.SetBody(buf.Bytes())
+		req.SetHeader("Content-Encoding", "gzip")
+
+		return nil
+	}
 }
