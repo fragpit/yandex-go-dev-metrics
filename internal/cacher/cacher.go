@@ -130,7 +130,6 @@ func runPeriodically(
 	ctx context.Context,
 	f func(ctx context.Context),
 	period time.Duration,
-	funcParams ...any,
 ) {
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
