@@ -12,7 +12,6 @@ import (
 )
 
 type Cacher struct {
-	ctx     context.Context
 	logger  *slog.Logger
 	storage repository.Repository
 
@@ -21,7 +20,6 @@ type Cacher struct {
 }
 
 func NewCacher(
-	ctx context.Context,
 	logger *slog.Logger,
 	storage repository.Repository,
 
@@ -29,7 +27,6 @@ func NewCacher(
 	interval time.Duration,
 ) *Cacher {
 	return &Cacher{
-		ctx:     ctx,
 		logger:  logger,
 		storage: storage,
 
@@ -38,11 +35,11 @@ func NewCacher(
 	}
 }
 
-func (s *Cacher) Run() error {
+func (s *Cacher) Run(ctx context.Context) error {
 	s.logger.Info("cacher started")
 	defer s.logger.Info("cacher stopped")
 
-	runPeriodically(s.ctx, s.saveMetrics, s.interval)
+	runPeriodically(ctx, s.saveMetrics, s.interval)
 	return nil
 }
 

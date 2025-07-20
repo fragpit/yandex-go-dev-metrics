@@ -44,7 +44,6 @@ func Run() error {
 	logger.Info("starting server", slog.String("address", cfg.Address))
 
 	cs := cacher.NewCacher(
-		ctx,
 		logger,
 		st,
 		cfg.FileStorePath,
@@ -80,7 +79,7 @@ func Run() error {
 	}
 
 	go func() {
-		if err := cs.Run(); err != nil {
+		if err := cs.Run(ctx); err != nil {
 			logger.Error("cacher error", slog.String("error", err.Error()))
 			cancel()
 		}
