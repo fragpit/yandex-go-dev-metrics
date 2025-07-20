@@ -12,7 +12,6 @@ import (
 )
 
 type Cacher struct {
-	ctx     context.Context
 	logger  *slog.Logger
 	storage repository.Repository
 
@@ -21,7 +20,6 @@ type Cacher struct {
 }
 
 func NewCacher(
-	ctx context.Context,
 	logger *slog.Logger,
 	storage repository.Repository,
 
@@ -29,7 +27,6 @@ func NewCacher(
 	interval time.Duration,
 ) *Cacher {
 	return &Cacher{
-		ctx:     ctx,
 		logger:  logger,
 		storage: storage,
 
@@ -38,15 +35,15 @@ func NewCacher(
 	}
 }
 
-func (s *Cacher) Run() error {
+func (s *Cacher) Run(ctx context.Context) error {
 	s.logger.Info("cacher started")
 	defer s.logger.Info("cacher stopped")
 
-	runPeriodically(s.ctx, s.saveMetrics, s.interval)
+	runPeriodically(ctx, s.saveMetrics, s.interval)
 	return nil
 }
 
-func (s *Cacher) Restore() ([]*model.Metrics, error) {
+func (s *Cacher) Restore() ([]model.Metric, error) {
 	file, err := os.Open(s.filename)
 	if err != nil {
 		s.logger.Error(
@@ -58,13 +55,37 @@ func (s *Cacher) Restore() ([]*model.Metrics, error) {
 	}
 	defer file.Close()
 
-	var metricsList []*model.Metrics
-	if err := json.NewDecoder(file).Decode(&metricsList); err != nil {
-		s.logger.Error(
-			"failed to decode metrics from file",
-			slog.String("error", err.Error()),
-		)
+	var metricsList []model.Metric
+	decoder := json.NewDecoder(file)
+
+	if _, err := decoder.Token(); err != nil {
 		return nil, err
+	}
+
+	for decoder.More() {
+		var metric model.Metrics
+		if err := decoder.Decode(&metric); err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+
+			s.logger.Error(
+				"failed to decode metric from file",
+				slog.String("error", err.Error()),
+			)
+			return nil, err
+		}
+
+		m, err := model.MetricFromJSON(&metric)
+		if err != nil {
+			s.logger.Error(
+				"failed to convert metric from json",
+				slog.String("error", err.Error()),
+			)
+			return nil, err
+		}
+
+		metricsList = append(metricsList, m)
 	}
 
 	return metricsList, nil
@@ -83,9 +104,9 @@ func (s *Cacher) saveMetrics(ctx context.Context) {
 		return
 	}
 
-	var metricsList []*model.Metrics
+	var metricsList []model.Metrics
 	for _, metric := range metrics {
-		metricsList = append(metricsList, metric)
+		metricsList = append(metricsList, *metric.ToJSON())
 	}
 
 	data, err := json.Marshal(metricsList)

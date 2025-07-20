@@ -10,8 +10,10 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/cacher"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/config"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/router"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/postgresql"
 )
 
 func Run() error {
@@ -23,6 +25,10 @@ func Run() error {
 	defer cancel()
 
 	cfg := config.NewServerConfig()
+	if cfg.LogLevel == "debug" {
+		cfg.Debug()
+	}
+
 	var logLevel slog.Level
 	switch cfg.LogLevel {
 	case "debug":
@@ -35,7 +41,16 @@ func Run() error {
 		Level: logLevel,
 	}))
 
-	st := memstorage.NewMemoryStorage()
+	var err error
+	var st repository.Repository
+	if cfg.DatabaseDSN != "" {
+		if st, err = postgresql.NewStorage(ctx, cfg.DatabaseDSN); err != nil {
+			return err
+		}
+	} else {
+		st = memstorage.NewMemoryStorage()
+	}
+
 	router := router.NewRouter(
 		logger.With("service", "router"),
 		st,
@@ -43,8 +58,7 @@ func Run() error {
 
 	logger.Info("starting server", slog.String("address", cfg.Address))
 
-	cs := cacher.NewCacher(
-		ctx,
+	cr := cacher.NewCacher(
 		logger,
 		st,
 		cfg.FileStorePath,
@@ -57,8 +71,8 @@ func Run() error {
 			slog.String("file", cfg.FileStorePath),
 		)
 		var err error
-		var metricsList []*model.Metrics
-		if metricsList, err = cs.Restore(); err != nil {
+		var metricsList []model.Metric
+		if metricsList, err = cr.Restore(); err != nil {
 			logger.Error(
 				"failed to restore metrics",
 				slog.String("error", err.Error()),
@@ -77,10 +91,15 @@ func Run() error {
 			)
 			return err
 		}
+
+		logger.Info(
+			"metrics restored from file",
+			slog.Int("total", len(metricsList)),
+		)
 	}
 
 	go func() {
-		if err := cs.Run(); err != nil {
+		if err := cr.Run(ctx); err != nil {
 			logger.Error("cacher error", slog.String("error", err.Error()))
 			cancel()
 		}

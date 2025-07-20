@@ -21,6 +21,9 @@ jobs:
     container: golang:1.24
     needs: branchtest
 
+    env:
+      LOG_LEVEL: debug
+
     services:
       postgres:
         image: postgres

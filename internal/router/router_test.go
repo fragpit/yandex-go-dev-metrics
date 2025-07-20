@@ -152,15 +152,8 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 			assert.Equal(t, tt.want.code, res.StatusCode)
 
 			if tt.want.value != "" {
-				if value, ok := st.Metrics[tt.body.ID]; ok {
-					var strVal string
-					if value.MType == "gauge" {
-						strVal = fmt.Sprintf("%v", *value.Value)
-					}
-					if value.MType == "counter" {
-						strVal = fmt.Sprintf("%v", *value.Delta)
-					}
-					assert.Equal(t, tt.want.value, strVal)
+				if metric, ok := st.Metrics[tt.body.ID]; ok {
+					assert.Equal(t, tt.want.value, metric.GetValue())
 				}
 			}
 		})
@@ -170,21 +163,22 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 func TestRouter_getMetricJSON(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 
-	metricsStore := []model.Metrics{
-		{
-			ID:    "test_metric_1",
-			MType: string(model.CounterType),
-			Delta: int64Ptr(42),
-		},
-		{
-			ID:    "test_metric_2",
-			MType: string(model.GaugeType),
-			Value: float64Ptr(3.14),
-		},
-	}
+	var err error
+	m1, err := model.NewMetric("test_metric_1", model.CounterType)
+	require.NoError(t, err)
+	err = m1.SetValue("42")
+	require.NoError(t, err)
+
+	m2, err := model.NewMetric("test_metric_2", model.GaugeType)
+	require.NoError(t, err)
+	err = m2.SetValue("3.14")
+	require.NoError(t, err)
+
+	var metricsStore []model.Metric
+	metricsStore = append(metricsStore, m1, m2)
 
 	for _, metric := range metricsStore {
-		err := st.SetOrUpdateMetric(context.Background(), &metric)
+		err := st.SetOrUpdateMetric(context.Background(), metric)
 		require.NoError(t, err)
 	}
 
@@ -222,7 +216,7 @@ func TestRouter_getMetricJSON(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid request no type",
+			name: "valid request no type",
 			body: &model.Metrics{
 				ID: "test_metric_1",
 			},
@@ -284,15 +278,8 @@ func TestRouter_getMetricJSON(t *testing.T) {
 			assert.Equal(t, tt.want.code, res.StatusCode)
 
 			if tt.want.value != "" {
-				if value, ok := st.Metrics[tt.body.ID]; ok {
-					var strVal string
-					if value.MType == "gauge" {
-						strVal = fmt.Sprintf("%v", *value.Value)
-					}
-					if value.MType == "counter" {
-						strVal = fmt.Sprintf("%v", *value.Delta)
-					}
-					assert.Equal(t, tt.want.value, strVal)
+				if metric, ok := st.Metrics[tt.body.ID]; ok {
+					assert.Equal(t, tt.want.value, metric.GetValue())
 				}
 			}
 		})
@@ -454,8 +441,16 @@ func TestRouter_updateMetric(t *testing.T) {
 		want    want
 	}{
 		{
-			name:    "valid request counter",
+			name:    "valid request counter #1",
 			request: "/update/counter/test_metric_1/1",
+			want: want{
+				code:        http.StatusOK,
+				contentType: "text/plain",
+			},
+		},
+		{
+			name:    "valid request counter #2",
+			request: "/update/counter/testSetGet111/606",
 			want: want{
 				code:        http.StatusOK,
 				contentType: "text/plain",
@@ -581,15 +576,8 @@ func TestRouter_updateMetric(t *testing.T) {
 			assert.Equal(t, tt.want.code, res.StatusCode)
 
 			if tt.want.value != "" {
-				if value, ok := st.Metrics[mValue]; ok {
-					var strVal string
-					if value.MType == "gauge" {
-						strVal = fmt.Sprintf("%v", *value.Value)
-					}
-					if value.MType == "counter" {
-						strVal = fmt.Sprintf("%v", *value.Delta)
-					}
-					assert.Equal(t, strVal, tt.want.value)
+				if metric, ok := st.Metrics[mValue]; ok {
+					assert.Equal(t, tt.want.value, metric.GetValue())
 				}
 			}
 		})
@@ -599,16 +587,13 @@ func TestRouter_updateMetric(t *testing.T) {
 func TestRouter_getMetric(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 
-	metric := model.Metrics{
-		ID:    "test_metric_1",
-		MType: "counter",
-	}
-
 	var err error
+	metric, err := model.NewMetric("test_metric_1", model.CounterType)
+	require.NoError(t, err)
 	err = metric.SetValue("42")
 	require.NoError(t, err)
 
-	err = st.SetOrUpdateMetric(context.Background(), &metric)
+	err = st.SetOrUpdateMetric(context.Background(), metric)
 	require.NoError(t, err)
 
 	type want struct {

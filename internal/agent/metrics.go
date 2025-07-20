@@ -22,13 +22,13 @@ const (
 type Metrics struct {
 	logger  *slog.Logger
 	counter int64
-	Metrics map[string]*model.Metrics
+	Metrics map[string]model.Metric
 }
 
 func NewMetrics(l *slog.Logger) *Metrics {
 	return &Metrics{
 		logger:  l,
-		Metrics: make(map[string]*model.Metrics),
+		Metrics: make(map[string]model.Metric),
 	}
 }
 
@@ -161,11 +161,11 @@ func (m *Metrics) reportMetrics(serverURL string) {
 		OnBeforeRequest(gzipRequestMiddleware())
 
 	for _, metric := range m.Metrics {
-		data, err := json.Marshal(metric)
+		data, err := json.Marshal(metric.ToJSON())
 		if err != nil {
 			m.logger.Error(
 				"error marshaling metric",
-				slog.String("metric_id", metric.ID),
+				slog.String("metric_id", metric.GetID()),
 				slog.Any("error", err),
 			)
 			continue
@@ -195,16 +195,16 @@ func (m *Metrics) reportMetrics(serverURL string) {
 }
 
 func (m *Metrics) register(tp model.MetricType, name, value string) error {
-	metric := &model.Metrics{
-		ID:    name,
-		MType: string(tp),
+	metric, err := model.NewMetric(name, tp)
+	if err != nil {
+		return err
 	}
 
 	if err := metric.SetValue(value); err != nil {
 		return err
 	}
 
-	m.Metrics[metric.ID] = metric
+	m.Metrics[metric.GetID()] = metric
 	return nil
 }
 

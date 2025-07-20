@@ -9,9 +9,7 @@
     <ul>
         {{- range $name, $item := . }}
         <li>
-            {{ $name }} ({{ $item.MType }}):
-            {{- if $item.Value }}{{ $item.Value }}{{- end }}
-            {{- if $item.Delta }}{{ $item.Delta }}{{- end }}
+            {{ $name }} ({{ $item.GetType }}): {{ $item.GetValue }}
         </li>
         {{- end }}
     </ul>

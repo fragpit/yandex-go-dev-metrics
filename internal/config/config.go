@@ -48,7 +48,7 @@ func NewAgentConfig() *AgentConfig {
 	flag.Parse()
 
 	finalLogLevel := *logLevel
-	if env := os.Getenv("DEBUG"); env != "" {
+	if env := os.Getenv("LOG_LEVEL"); env != "" {
 		finalLogLevel = env
 	}
 
@@ -118,6 +118,7 @@ type ServerConfig struct {
 	StoreInterval time.Duration `yaml:"store_interval"`
 	FileStorePath string        `yaml:"file_store_path"`
 	Restore       bool          `yaml:"restore"`
+	DatabaseDSN   string        `yaml:"database_dsn"`
 }
 
 func NewServerConfig() *ServerConfig {
@@ -149,6 +150,12 @@ func NewServerConfig() *ServerConfig {
 		"r",
 		false,
 		"восстанавливать метрики из файла при запуске сервера (по умолчанию false)",
+	)
+
+	dbDSN := flag.String(
+		"d",
+		"",
+		"строка подключения к БД, если не указана используется memory storage (по умолчанию пусто)",
 	)
 
 	flag.Parse()
@@ -197,11 +204,40 @@ func NewServerConfig() *ServerConfig {
 		}
 	}
 
+	finalDBDSN := *dbDSN
+	if env := os.Getenv("DATABASE_DSN"); env != "" {
+		finalDBDSN = env
+	}
+
 	return &ServerConfig{
 		LogLevel:      finalLogLevel,
 		Address:       finalAddress,
 		StoreInterval: storeIntervalDuration,
 		FileStorePath: finalFileStorePath,
 		Restore:       finalRestore,
+		DatabaseDSN:   finalDBDSN,
 	}
+}
+
+func (c *AgentConfig) Debug() {
+	slog.Info(
+		"agent config",
+		slog.String("log_level", c.LogLevel),
+		slog.String("server_url", c.ServerURL),
+		slog.Int("poll_interval", c.PollInterval),
+		slog.Int("report_interval", c.ReportInterval),
+		slog.Bool("restore", c.Restore),
+	)
+}
+
+func (c *ServerConfig) Debug() {
+	slog.Info(
+		"server config",
+		slog.String("log_level", c.LogLevel),
+		slog.String("address", c.Address),
+		slog.Duration("store_interval", c.StoreInterval),
+		slog.String("file_store_path", c.FileStorePath),
+		slog.Bool("restore", c.Restore),
+		slog.String("database_dsn", c.DatabaseDSN),
+	)
 }
