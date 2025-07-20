@@ -1,9 +1,13 @@
 package router
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +20,426 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRouter_setMetric(t *testing.T) {
+func TestRouter_updateMetricJSON(t *testing.T) {
+	st := memstorage.NewMemoryStorage()
+
+	type want struct {
+		code        int
+		contentType string
+		value       string
+	}
+
+	tests := []struct {
+		name string
+		body *model.Metrics
+		want want
+	}{
+		{
+			name: "valid request counter",
+			body: &model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.CounterType),
+				Delta: int64Ptr(1),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "valid request gauge",
+			body: &model.Metrics{
+				ID:    "test_metric_2",
+				MType: string(model.GaugeType),
+				Value: float64Ptr(1.0),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "valid request gauge negative",
+			body: &model.Metrics{
+				ID:    "test_metric_3",
+				MType: string(model.GaugeType),
+				Value: float64Ptr(-1.0),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "gauge must rewrite #1",
+			body: &model.Metrics{
+				ID:    "test_metric_4",
+				MType: string(model.GaugeType),
+				Value: float64Ptr(100.0),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "gauge must rewrite #2",
+			body: &model.Metrics{
+				ID:    "test_metric_4",
+				MType: string(model.GaugeType),
+				Value: float64Ptr(200.0),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+				value:       "200",
+			},
+		},
+		{
+			name: "counter must increment #1",
+			body: &model.Metrics{
+				ID:    "test_metric_5",
+				MType: string(model.CounterType),
+				Delta: int64Ptr(100),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "counter must increment #2",
+			body: &model.Metrics{
+				ID:    "test_metric_5",
+				MType: string(model.CounterType),
+				Delta: int64Ptr(200),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+				value:       "300",
+			},
+		},
+		{
+			name: "empty metric name",
+			body: &model.Metrics{
+				ID:    "",
+				MType: string(model.CounterType),
+				Delta: int64Ptr(200),
+			},
+			want: want{
+				code:        http.StatusBadRequest,
+				contentType: "application/json",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.body)
+			assert.Nil(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
+			rr := httptest.NewRecorder()
+
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
+
+			r.updateMetricJSON(rr, req)
+			res := rr.Result()
+			defer res.Body.Close()
+
+			assert.Equal(t, tt.want.code, res.StatusCode)
+
+			if tt.want.value != "" {
+				if value, ok := st.Metrics[tt.body.ID]; ok {
+					var strVal string
+					if value.MType == "gauge" {
+						strVal = fmt.Sprintf("%v", *value.Value)
+					}
+					if value.MType == "counter" {
+						strVal = fmt.Sprintf("%v", *value.Delta)
+					}
+					assert.Equal(t, tt.want.value, strVal)
+				}
+			}
+		})
+	}
+}
+
+func TestRouter_getMetricJSON(t *testing.T) {
+	st := memstorage.NewMemoryStorage()
+
+	metricsStore := []model.Metrics{
+		{
+			ID:    "test_metric_1",
+			MType: string(model.CounterType),
+			Delta: int64Ptr(42),
+		},
+		{
+			ID:    "test_metric_2",
+			MType: string(model.GaugeType),
+			Value: float64Ptr(3.14),
+		},
+	}
+
+	for _, metric := range metricsStore {
+		err := st.SetOrUpdateMetric(context.Background(), &metric)
+		require.NoError(t, err)
+	}
+
+	type want struct {
+		code        int
+		contentType string
+		value       string
+	}
+
+	tests := []struct {
+		name string
+		body *model.Metrics
+		want want
+	}{
+		{
+			name: "valid request counter",
+			body: &model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.CounterType),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "valid request gauge",
+			body: &model.Metrics{
+				ID:    "test_metric_2",
+				MType: string(model.GaugeType),
+			},
+			want: want{
+				code:        http.StatusOK,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "invalid request no type",
+			body: &model.Metrics{
+				ID: "test_metric_1",
+			},
+			want: want{
+				code:        http.StatusBadRequest,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "invalid request empty id",
+			body: &model.Metrics{
+				ID:    "",
+				MType: string(model.GaugeType),
+			},
+			want: want{
+				code:        http.StatusBadRequest,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "invalid request non existent id",
+			body: &model.Metrics{
+				ID:    "xxxxxxxxxxxxxxxxxxxxxxx",
+				MType: string(model.GaugeType),
+			},
+			want: want{
+				code:        http.StatusNotFound,
+				contentType: "application/json",
+			},
+		},
+		{
+			name: "invalid request wrong type",
+			body: &model.Metrics{
+				ID:    "test_metric_1",
+				MType: "wrong_type",
+			},
+			want: want{
+				code:        http.StatusBadRequest,
+				contentType: "application/json",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.body)
+			assert.Nil(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
+			rr := httptest.NewRecorder()
+
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
+
+			r.getMetricJSON(rr, req)
+			res := rr.Result()
+			defer res.Body.Close()
+
+			assert.Equal(t, tt.want.code, res.StatusCode)
+
+			if tt.want.value != "" {
+				if value, ok := st.Metrics[tt.body.ID]; ok {
+					var strVal string
+					if value.MType == "gauge" {
+						strVal = fmt.Sprintf("%v", *value.Value)
+					}
+					if value.MType == "counter" {
+						strVal = fmt.Sprintf("%v", *value.Delta)
+					}
+					assert.Equal(t, tt.want.value, strVal)
+				}
+			}
+		})
+	}
+}
+
+func TestRouter_TestRoutes(t *testing.T) {
+	st := memstorage.NewMemoryStorage()
+	l := slog.New(slog.DiscardHandler)
+	r := NewRouter(l, st)
+
+	ts := httptest.NewServer(r.router)
+	defer ts.Close()
+
+	tests := []struct {
+		name         string
+		endpoint     string
+		contentType  string
+		code         int
+		data         model.Metrics
+		isCompressed bool
+	}{
+		{
+			name:        "valid endpoint /update",
+			endpoint:    "/update",
+			contentType: "application/json",
+			code:        http.StatusOK,
+			data: model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.GaugeType),
+				Value: float64Ptr(42.0),
+			},
+		},
+		{
+			name:        "valid endpoint /update/",
+			endpoint:    "/update/",
+			contentType: "application/json",
+			code:        http.StatusOK,
+			data: model.Metrics{
+				ID:    "test_metric_2",
+				MType: string(model.CounterType),
+				Delta: int64Ptr(200),
+			},
+		},
+		{
+			name:        "valid endpoint /value",
+			endpoint:    "/value",
+			contentType: "application/json",
+			code:        http.StatusOK,
+			data: model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.GaugeType),
+			},
+		},
+		{
+			name:        "valid endpoint /value/",
+			endpoint:    "/value/",
+			contentType: "application/json",
+			code:        http.StatusOK,
+			data: model.Metrics{
+				ID:    "test_metric_2",
+				MType: string(model.CounterType),
+			},
+		},
+		{
+			name:        "non existent route",
+			endpoint:    "/nonexistent",
+			contentType: "application/json",
+			code:        http.StatusNotFound,
+			data: model.Metrics{
+				ID:    "test_metric",
+				MType: string(model.CounterType),
+			},
+		},
+		{
+			name:        "empty metric name",
+			endpoint:    "/update/counter",
+			contentType: "application/json",
+			code:        http.StatusNotFound,
+		},
+		{
+			name:         "valid endpoint /update compressed",
+			endpoint:     "/update",
+			contentType:  "application/json",
+			code:         http.StatusOK,
+			isCompressed: true,
+			data: model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.GaugeType),
+				Value: float64Ptr(42.0),
+			},
+		},
+		{
+			name:         "valid endpoint /value compressed",
+			endpoint:     "/value",
+			contentType:  "application/json",
+			code:         http.StatusOK,
+			isCompressed: true,
+			data: model.Metrics{
+				ID:    "test_metric_1",
+				MType: string(model.GaugeType),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &http.Client{}
+
+			data, err := json.Marshal(tt.data)
+			require.NoError(t, err)
+
+			var body io.Reader
+			if tt.isCompressed {
+				var buf bytes.Buffer
+				zw := gzip.NewWriter(&buf)
+				_, err = zw.Write(data)
+				require.NoError(t, err)
+				err = zw.Close()
+				require.NoError(t, err)
+				body = bytes.NewReader(buf.Bytes())
+			} else {
+				body = bytes.NewReader(data)
+			}
+
+			req, err := http.NewRequest(
+				http.MethodPost,
+				ts.URL+tt.endpoint,
+				body,
+			)
+			require.NoError(t, err)
+
+			req.Header.Set("Content-Type", tt.contentType)
+			if tt.isCompressed {
+				req.Header.Set("Content-Encoding", "gzip")
+			}
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			assert.Equal(t, tt.code, resp.StatusCode)
+		})
+	}
+}
+
+func TestRouter_updateMetric(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 
 	type want struct {
@@ -122,7 +545,8 @@ func TestRouter_setMetric(t *testing.T) {
 				nil,
 			)
 			rr := httptest.NewRecorder()
-			r := NewRouter(st)
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -150,7 +574,7 @@ func TestRouter_setMetric(t *testing.T) {
 			chiCtx.URLParams.Add("name", fmt.Sprintf("%v", mName))
 			chiCtx.URLParams.Add("value", fmt.Sprintf("%v", mValue))
 
-			r.setMetric(rr, req)
+			r.updateMetric(rr, req)
 			res := rr.Result()
 			defer res.Body.Close()
 
@@ -172,23 +596,6 @@ func TestRouter_setMetric(t *testing.T) {
 	}
 }
 
-func TestRouter_EmptyMetricName404(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
-	r := NewRouter(st)
-
-	ts := httptest.NewServer(r.router)
-	defer ts.Close()
-
-	resp, err := http.Post(
-		ts.URL+"/update/counter",
-		"text/plain",
-		nil,
-	)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-}
-
 func TestRouter_getMetric(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 
@@ -196,7 +603,12 @@ func TestRouter_getMetric(t *testing.T) {
 		ID:    "test_metric_1",
 		MType: "counter",
 	}
-	err := st.SetMetric(&metric, "42")
+
+	var err error
+	err = metric.SetValue("42")
+	require.NoError(t, err)
+
+	err = st.SetOrUpdateMetric(context.Background(), &metric)
 	require.NoError(t, err)
 
 	type want struct {
@@ -236,7 +648,8 @@ func TestRouter_getMetric(t *testing.T) {
 			)
 
 			rr := httptest.NewRecorder()
-			r := NewRouter(st)
+			l := slog.New(slog.DiscardHandler)
+			r := NewRouter(l, st)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -261,4 +674,12 @@ func TestRouter_getMetric(t *testing.T) {
 			assert.Equal(t, tt.want.value, string(body))
 		})
 	}
+}
+
+func int64Ptr(v int64) *int64 {
+	return &v
+}
+
+func float64Ptr(v float64) *float64 {
+	return &v
 }

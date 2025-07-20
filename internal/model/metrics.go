@@ -17,22 +17,33 @@ const (
 	GaugeType   MetricType = "gauge"
 )
 
-var ErrInvalidMetricType = errors.New("invalid metric type")
+var (
+	ErrInvalidMetricType = errors.New("invalid metric type")
+	ErrMetricTypeNotSet  = errors.New("metric type is not set")
+)
 
-// NOTE: Не усложняем пример, вводя иерархическую вложенность структур.
-// Органичиваясь плоской моделью.
-// Delta и Value объявлены через указатели,
-// что бы отличать значение "0", от не заданного значения
-// и соответственно не кодировать в структуру.
 type Metrics struct {
 	ID    string   `json:"id"`
 	MType string   `json:"type"`
 	Delta *int64   `json:"delta,omitempty"`
 	Value *float64 `json:"value,omitempty"`
-	Hash  string   `json:"hash,omitempty"`
 }
 
-func (m *Metrics) SetMetricValue(value string) error {
+func (m *Metrics) SetValue(value string) error {
+	if m.MType == "" {
+		return ErrMetricTypeNotSet
+	}
+
+	if m.MType == string(GaugeType) {
+		parsedValue, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+
+		m.Value = &parsedValue
+		return nil
+	}
+
 	if m.MType == string(CounterType) {
 		parsedValue, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
@@ -43,17 +54,10 @@ func (m *Metrics) SetMetricValue(value string) error {
 		} else {
 			*m.Delta += parsedValue
 		}
-	} else if m.MType == string(GaugeType) {
-		parsedValue, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return err
-		}
-		m.Value = &parsedValue
-	} else {
-		return ErrInvalidMetricType
+		return nil
 	}
 
-	return nil
+	return ErrInvalidMetricType
 }
 
 func (m *Metrics) GetMetricValue() string {

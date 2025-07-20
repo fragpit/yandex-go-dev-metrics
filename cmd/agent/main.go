@@ -1,13 +1,15 @@
 package main
 
 import (
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/agent"
 )
 
 func main() {
 	if err := agent.Run(); err != nil {
-		log.Fatalf("agent fatal error: %v", err)
+		slog.Error("agent fatal error", slog.Any("error", err))
+		os.Exit(1)
 	}
 }
