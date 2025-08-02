@@ -46,7 +46,36 @@ func NewStorage(ctx context.Context, dbDSN string) (*Storage, error) {
 func (s *Storage) GetMetrics(
 	ctx context.Context,
 ) (map[string]model.Metric, error) {
-	return nil, nil
+	q := `SELECT id, type, value FROM metrics`
+	rows, err := s.DB.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	metrics := make(map[string]model.Metric)
+	for rows.Next() {
+		var id, metricType, value string
+		if err := rows.Scan(&id, &metricType, &value); err != nil {
+			return nil, err
+		}
+
+		metric, err := model.NewMetric(id, model.MetricType(metricType))
+		if err != nil {
+			return nil, err
+		}
+
+		if err := metric.SetValue(value); err != nil {
+			return nil, err
+		}
+
+		metrics[id] = metric
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return metrics, nil
 }
 
 func (s *Storage) GetMetric(
@@ -80,6 +109,37 @@ func (s *Storage) SetOrUpdateMetric(
 	ctx context.Context,
 	metric model.Metric,
 ) error {
+	var q string
+
+	if metric.GetType() == "counter" {
+		q = `
+		INSERT INTO metrics (id, type, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO
+		UPDATE SET value = CAST(metrics.value AS BIGINT) +
+												CAST(EXCLUDED.value AS BIGINT)
+		`
+	} else {
+		// Для gauge перезаписываем значение
+		q = `
+		INSERT INTO metrics (id, type, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO
+		UPDATE SET value = EXCLUDED.value
+		`
+	}
+
+	_, err := s.DB.ExecContext(
+		ctx,
+		q,
+		metric.GetID(),
+		metric.GetType(),
+		metric.GetValue(),
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

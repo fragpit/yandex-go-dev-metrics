@@ -41,16 +41,33 @@ tasks:
 
   run-metricstest:*:
     vars:
+      TEST_SET_NUM: "{{ index .MATCH 0 | default 9 }}"
       SERVER_PORT: 41112
       ADDRESS: "localhost:${SERVER_PORT}"
       TEMP_FILE: /tmp/test.json
-      TEST_SET_NUM: "{{ index .MATCH 0 | default 9 }}"
+      DATABASE_DSN: postgresql://yx:yx@localhost:5432/yandex-metrics?sslmode=disable
     cmds:
       - task: build
       - metricstest -test.v -test.run=^TestIteration{{ .TEST_SET_NUM }}$
           -agent-binary-path={{ .BUILD_DIR }}/agent
           -binary-path={{ .BUILD_DIR }}/server
           -file-storage-path={{ .TEMP_FILE }}
+          -server-port={{ .SERVER_PORT }}
+          -source-path=.
+      - rm -f {{ .TEMP_FILE }}
+
+  run-metricstest-pg:*:
+    vars:
+      TEST_SET_NUM: "{{ index .MATCH 0 | default 9 }}"
+      SERVER_PORT: 41112
+      ADDRESS: "localhost:${SERVER_PORT}"
+      DATABASE_DSN: postgresql://yx:yx@localhost:5432/yandex-metrics?sslmode=disable
+    cmds:
+      - task: build
+      - metricstest -test.v -test.run=^TestIteration{{ .TEST_SET_NUM }}$
+          -agent-binary-path={{ .BUILD_DIR }}/agent
+          -binary-path={{ .BUILD_DIR }}/server
+          -database-dsn={{ .DATABASE_DSN }}
           -server-port={{ .SERVER_PORT }}
           -source-path=.
       - rm -f {{ .TEMP_FILE }}
