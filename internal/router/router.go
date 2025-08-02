@@ -61,6 +61,8 @@ func (rt *Router) initRoutes() http.Handler {
 		r.Post("/{type}/{name}/{value}", rt.updateMetric)
 	})
 
+	r.Post("/updates/", rt.updatesHandler)
+
 	return r
 }
 
@@ -229,7 +231,11 @@ func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 func (rt Router) updateMetricJSON(w http.ResponseWriter, req *http.Request) {
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		http.Error(w, "error setting metric", http.StatusInternalServerError)
+		rt.logger.Error(
+			"error reading request body",
+			slog.Any("error", err),
+		)
+		http.Error(w, "error reading request body", http.StatusBadRequest)
 		return
 	}
 
@@ -354,4 +360,62 @@ func (rt Router) getMetric(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte(metricValue))
+}
+
+func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		rt.logger.Error(
+			"error reading request body",
+			slog.Any("error", err),
+		)
+		http.Error(w, "error reading request body", http.StatusBadRequest)
+		return
+	}
+
+	var jsonMetrics []*model.Metrics
+	var metrics []model.Metric
+	if err := json.Unmarshal(body, &jsonMetrics); err != nil {
+		rt.logger.Error(
+			"error parsing request body",
+			slog.Any("error", err),
+		)
+		http.Error(w, "error parsing request body", http.StatusBadRequest)
+		return
+	}
+
+	for _, m := range jsonMetrics {
+		if m.ID == "" {
+			rt.logger.Error(
+				"metric name is empty",
+				slog.Any("metric", m),
+			)
+			http.Error(w, "metric name is empty", http.StatusBadRequest)
+			return
+		}
+
+		metric, err := model.MetricFromJSON(m)
+		if err != nil {
+			rt.logger.Error(
+				"error converting metrics from json",
+				slog.Any("metric", m),
+			)
+			http.Error(w, "error converting metrics from json", http.StatusBadRequest)
+			return
+		}
+
+		metrics = append(metrics, metric)
+	}
+
+	if err := rt.repo.SetOrUpdateMetricBatch(req.Context(), metrics); err != nil {
+		rt.logger.Error(
+			"error batch updating metrics",
+			slog.Any("error", err),
+		)
+		http.Error(w, "error setting metric", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
 }

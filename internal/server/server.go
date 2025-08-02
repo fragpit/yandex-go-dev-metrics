@@ -58,52 +58,54 @@ func Run() error {
 
 	logger.Info("starting server", slog.String("address", cfg.Address))
 
-	cr := cacher.NewCacher(
-		logger,
-		st,
-		cfg.FileStorePath,
-		cfg.StoreInterval,
-	)
-
-	if cfg.Restore {
-		logger.Info(
-			"restoring metrics from file",
-			slog.String("file", cfg.FileStorePath),
+	if cfg.DatabaseDSN == "" {
+		cr := cacher.NewCacher(
+			logger,
+			st,
+			cfg.FileStorePath,
+			cfg.StoreInterval,
 		)
-		var err error
-		var metricsList []model.Metric
-		if metricsList, err = cr.Restore(); err != nil {
-			logger.Error(
-				"failed to restore metrics",
-				slog.String("error", err.Error()),
-			)
 
-			if os.IsNotExist(err) {
-				logger.Info("no metrics file found, starting with empty storage")
-			} else {
+		if cfg.Restore {
+			logger.Info(
+				"restoring metrics from file",
+				slog.String("file", cfg.FileStorePath),
+			)
+			var err error
+			var metricsList []model.Metric
+			if metricsList, err = cr.Restore(); err != nil {
+				logger.Error(
+					"failed to restore metrics",
+					slog.String("error", err.Error()),
+				)
+
+				if os.IsNotExist(err) {
+					logger.Info("no metrics file found, starting with empty storage")
+				} else {
+					return err
+				}
+			}
+			if err = st.Initialize(metricsList); err != nil {
+				logger.Error(
+					"failed to restore metrics",
+					slog.String("error", err.Error()),
+				)
 				return err
 			}
-		}
-		if err = st.Initialize(metricsList); err != nil {
-			logger.Error(
-				"failed to restore metrics",
-				slog.String("error", err.Error()),
+
+			logger.Info(
+				"metrics restored from file",
+				slog.Int("total", len(metricsList)),
 			)
-			return err
 		}
 
-		logger.Info(
-			"metrics restored from file",
-			slog.Int("total", len(metricsList)),
-		)
+		go func() {
+			if err := cr.Run(ctx); err != nil {
+				logger.Error("cacher error", slog.String("error", err.Error()))
+				cancel()
+			}
+		}()
 	}
-
-	go func() {
-		if err := cr.Run(ctx); err != nil {
-			logger.Error("cacher error", slog.String("error", err.Error()))
-			cancel()
-		}
-	}()
 
 	if err := router.Run(ctx, cfg.Address); err != nil {
 		return err

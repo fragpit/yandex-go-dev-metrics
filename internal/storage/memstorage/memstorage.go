@@ -60,6 +60,31 @@ func (s *MemoryStorage) SetOrUpdateMetric(
 	return nil
 }
 
+func (s *MemoryStorage) SetOrUpdateMetricBatch(
+	ctx context.Context,
+	metrics []model.Metric,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, metric := range metrics {
+		if m, ok := s.Metrics[metric.GetID()]; ok {
+			if m.GetType() != metric.GetType() {
+				return errors.New("metric already exist with another type")
+			}
+
+			if err := m.SetValue(metric.GetValue()); err != nil {
+				return err
+			}
+
+		} else {
+			s.Metrics[metric.GetID()] = metric
+		}
+	}
+
+	return nil
+}
+
 func (s *MemoryStorage) GetMetrics(
 	ctx context.Context,
 ) (map[string]model.Metric, error) {

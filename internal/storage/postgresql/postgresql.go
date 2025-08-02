@@ -3,7 +3,13 @@ package postgresql
 import (
 	"context"
 	"database/sql"
+	"embed"
+	"errors"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/lib/pq"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
@@ -16,6 +22,9 @@ type Storage struct {
 	DB *sql.DB
 }
 
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
 func NewStorage(ctx context.Context, dbDSN string) (*Storage, error) {
 	db, err := sql.Open("postgres", dbDSN)
 	if err != nil {
@@ -26,16 +35,34 @@ func NewStorage(ctx context.Context, dbDSN string) (*Storage, error) {
 		return nil, err
 	}
 
-	dbCreateQuery := `
-	CREATE TABLE IF NOT EXISTS metrics (
-			id TEXT PRIMARY KEY,
-			type TEXT NOT NULL,
-			value TEXT NOT NULL
-	);
-	`
-
-	if _, err := db.ExecContext(ctx, dbCreateQuery); err != nil {
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	if err != nil {
 		return nil, err
+	}
+
+	// m, err := migrate.NewWithDatabaseInstance(
+	// 	"file:///migrations",
+	// 	"postgresql",
+	// 	driver,
+	// )
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	sourceDriver, err := iofs.New(migrationsFS, "migrations")
+	if err != nil {
+		return nil, err
+	}
+
+	m, err := migrate.NewWithInstance("iofs", sourceDriver, "postgresql", driver)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := m.Up(); err != nil {
+		if !errors.Is(err, migrate.ErrNoChange) {
+			return nil, err
+		}
 	}
 
 	return &Storage{
@@ -82,14 +109,11 @@ func (s *Storage) GetMetric(
 	ctx context.Context,
 	name string,
 ) (model.Metric, error) {
-	q := `SELECT id, type, value FROM metrics WHERE id == $1`
-	row := s.DB.QueryRowContext(ctx, q)
+	q := `SELECT id, type, value FROM metrics WHERE id = $1`
+	row := s.DB.QueryRowContext(ctx, q, name)
 
 	var id, metricType, value string
 	if err := row.Scan(&id, &metricType, &value); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
 
@@ -120,7 +144,6 @@ func (s *Storage) SetOrUpdateMetric(
 												CAST(EXCLUDED.value AS BIGINT)
 		`
 	} else {
-		// Для gauge перезаписываем значение
 		q = `
 		INSERT INTO metrics (id, type, value)
 		VALUES ($1, $2, $3)
@@ -141,6 +164,54 @@ func (s *Storage) SetOrUpdateMetric(
 	}
 
 	return nil
+}
+
+func (s *Storage) SetOrUpdateMetricBatch(
+	ctx context.Context,
+	metrics []model.Metric,
+) error {
+	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+
+	qCounter := `
+	INSERT INTO metrics (id, type, value)
+	VALUES ($1, $2, $3)
+	ON CONFLICT (id) DO
+	UPDATE SET value = CAST(metrics.value AS BIGINT) +
+											CAST(EXCLUDED.value AS BIGINT)
+	`
+
+	qGauge := `
+	INSERT INTO metrics (id, type, value)
+	VALUES ($1, $2, $3)
+	ON CONFLICT (id) DO
+	UPDATE SET value = EXCLUDED.value
+	`
+
+	for _, m := range metrics {
+		var q string
+		if m.GetType() == "counter" {
+			q = qCounter
+		} else {
+			q = qGauge
+		}
+
+		_, err := tx.ExecContext(
+			ctx,
+			q,
+			m.GetID(),
+			m.GetType(),
+			m.GetValue(),
+		)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (s *Storage) Initialize(metrics []model.Metric) error {

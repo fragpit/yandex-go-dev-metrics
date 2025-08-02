@@ -14,7 +14,6 @@ type AgentConfig struct {
 	ServerURL      string `yaml:"address"`
 	PollInterval   int    `yaml:"poll"`
 	ReportInterval int    `yaml:"report"`
-	Restore        bool   `yaml:"restore"`
 }
 
 func NewAgentConfig() *AgentConfig {
@@ -38,11 +37,6 @@ func NewAgentConfig() *AgentConfig {
 		"r",
 		10,
 		"частота отправки метрик на сервер (по умолчанию 10 секунд)",
-	)
-	restore := flag.Bool(
-		"rs",
-		false,
-		"",
 	)
 
 	flag.Parse()
@@ -85,20 +79,6 @@ func NewAgentConfig() *AgentConfig {
 		}
 	}
 
-	finalRestore := *restore
-	if envRestore := os.Getenv("RESTORE"); envRestore != "" {
-		var err error
-		finalRestore, err = strconv.ParseBool(envRestore)
-		if err != nil {
-			slog.Error(
-				"error converting parameter",
-				slog.String("parameter", "RESTORE"),
-				slog.Any("error", err),
-			)
-			os.Exit(1)
-		}
-	}
-
 	if !strings.HasPrefix(finalServerURL, "http://") {
 		finalServerURL = "http://" + finalServerURL
 	}
@@ -108,7 +88,6 @@ func NewAgentConfig() *AgentConfig {
 		ServerURL:      finalServerURL,
 		PollInterval:   finalPollInterval,
 		ReportInterval: finalReportInterval,
-		Restore:        finalRestore,
 	}
 }
 
@@ -142,8 +121,8 @@ func NewServerConfig() *ServerConfig {
 
 	fileStorePath := flag.String(
 		"f",
-		"/tmp/metrics/metrics.json",
-		"путь к файлу для сохранения метрик (по умолчанию metrics)",
+		"/tmp/metrics.json",
+		"путь к файлу для сохранения метрик (по умолчанию /tmp/metrics.json)",
 	)
 
 	restore := flag.Bool(
@@ -226,7 +205,6 @@ func (c *AgentConfig) Debug() {
 		slog.String("server_url", c.ServerURL),
 		slog.Int("poll_interval", c.PollInterval),
 		slog.Int("report_interval", c.ReportInterval),
-		slog.Bool("restore", c.Restore),
 	)
 }
 

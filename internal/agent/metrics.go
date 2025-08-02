@@ -150,7 +150,7 @@ func (m *Metrics) pollMetrics() error {
 }
 
 func (m *Metrics) reportMetrics(serverURL string) {
-	updateURL := serverURL + "/update"
+	updateURL := serverURL + "/updates/"
 
 	client := resty.New()
 	client.
@@ -160,35 +160,43 @@ func (m *Metrics) reportMetrics(serverURL string) {
 		SetHeader("Content-Encoding", "gzip").
 		OnBeforeRequest(gzipRequestMiddleware())
 
+	var (
+		data    []byte
+		err     error
+		metrics []*model.Metrics
+	)
+
 	for _, metric := range m.Metrics {
-		data, err := json.Marshal(metric.ToJSON())
-		if err != nil {
-			m.logger.Error(
-				"error marshaling metric",
-				slog.String("metric_id", metric.GetID()),
-				slog.Any("error", err),
-			)
-			continue
-		}
+		m := metric.ToJSON()
+		metrics = append(metrics, m)
+	}
 
-		resp, err := client.R().
-			SetBody(data).
-			Post(updateURL)
-		if err != nil {
-			m.logger.Error(
-				"error reporting metrics",
-				slog.Any("error", err),
-			)
-			return
-		}
+	data, err = json.Marshal(metrics)
+	if err != nil {
+		m.logger.Error(
+			"error marshaling metrics",
+			slog.Any("error", err),
+		)
+		return
+	}
 
-		if resp.StatusCode() != http.StatusOK {
-			m.logger.Error(
-				"non-OK status code",
-				slog.Int("status_code", resp.StatusCode()),
-			)
-			return
-		}
+	resp, err := client.R().
+		SetBody(data).
+		Post(updateURL)
+	if err != nil {
+		m.logger.Error(
+			"error reporting metrics",
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		m.logger.Error(
+			"non-OK status code",
+			slog.Int("status_code", resp.StatusCode()),
+		)
+		return
 	}
 
 	m.reset()
