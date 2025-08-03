@@ -6,6 +6,7 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 )
 
+//go:generate go tool mockgen -package=mocks -destination=../mocks/repository/repository_mock.go . Repository
 type Repository interface {
 	GetMetrics(ctx context.Context) (map[string]model.Metric, error)
 	GetMetric(ctx context.Context, name string) (model.Metric, error)
@@ -13,5 +14,5 @@ type Repository interface {
 	SetOrUpdateMetricBatch(ctx context.Context, metrics []model.Metric) error
 	Initialize([]model.Metric) error
 	Ping(ctx context.Context) error
-	Close() error
+	Close(ctx context.Context) error
 }

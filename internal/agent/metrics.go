@@ -155,7 +155,9 @@ func (m *Metrics) reportMetrics(serverURL string) {
 	client := resty.New()
 	client.
 		SetTimeout(clientPostTimeout).
-		SetRetryCount(2).
+		SetRetryCount(3).
+		SetRetryWaitTime(1*time.Second).
+		SetRetryMaxWaitTime(5*time.Second).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
 		OnBeforeRequest(gzipRequestMiddleware())

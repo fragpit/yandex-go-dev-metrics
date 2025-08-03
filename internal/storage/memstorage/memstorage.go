@@ -106,6 +106,6 @@ func (s *MemoryStorage) Ping(_ context.Context) error {
 	return nil
 }
 
-func (s *MemoryStorage) Close() error {
+func (s *MemoryStorage) Close(ctx context.Context) error {
 	return nil
 }

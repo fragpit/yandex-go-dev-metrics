@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,15 +14,18 @@ import (
 	"strings"
 	"testing"
 
+	mocks "github.com/fragpit/yandex-go-dev-metrics/internal/mocks/repository"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestRouter_updateMetricJSON(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
+	l := slog.New(slog.DiscardHandler)
 
 	type want struct {
 		code        int
@@ -142,7 +146,6 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
 
-			l := slog.New(slog.DiscardHandler)
 			r := NewRouter(l, st)
 
 			r.updateMetricJSON(rr, req)
@@ -657,6 +660,164 @@ func TestRouter_getMetric(t *testing.T) {
 			body, err := io.ReadAll(res.Body)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want.value, string(body))
+		})
+	}
+}
+
+func TestRouter_pingHandler(t *testing.T) {
+	l := slog.New(slog.DiscardHandler)
+	ctx := context.Background()
+
+	type want struct {
+		code int
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want want
+	}{
+		{
+			name: "valid request ping",
+			err:  nil,
+			want: want{
+				code: http.StatusOK,
+			},
+		},
+		{
+			name: "invalid request ping",
+			err:  errors.New("some error"),
+			want: want{
+				code: http.StatusInternalServerError,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			storeMock := mocks.NewMockRepository(ctrl)
+			storeMock.EXPECT().
+				Ping(ctx).
+				Times(1).
+				Return(tt.err)
+
+			req := httptest.NewRequest("GET", "/ping", nil)
+			rr := httptest.NewRecorder()
+
+			router := NewRouter(l, storeMock)
+			router.pingHandler(rr, req)
+
+			assert.Equal(t, tt.want.code, rr.Code)
+		})
+	}
+
+}
+
+func TestRouter_updatesHandler(t *testing.T) {
+	st := memstorage.NewMemoryStorage()
+	l := slog.New(slog.DiscardHandler)
+	r := NewRouter(l, st)
+
+	type want struct {
+		code int
+	}
+
+	tests := []struct {
+		name      string
+		body      []*model.Metrics
+		want      want
+		expectErr bool
+	}{
+		{
+			name: "valid batch update gauge and counter",
+			body: []*model.Metrics{
+				{
+					ID:    "batch_gauge_1",
+					MType: string(model.GaugeType),
+					Value: float64Ptr(10.5),
+				},
+				{
+					ID:    "batch_counter_1",
+					MType: string(model.CounterType),
+					Delta: int64Ptr(5),
+				},
+			},
+			want: want{
+				code: http.StatusOK,
+			},
+		},
+		{
+			name: "empty metric name in batch",
+			body: []*model.Metrics{
+				{
+					ID:    "",
+					MType: string(model.GaugeType),
+					Value: float64Ptr(1.0),
+				},
+			},
+			want: want{
+				code: http.StatusBadRequest,
+			},
+		},
+		{
+			name: "invalid metric type in batch",
+			body: []*model.Metrics{
+				{
+					ID:    "invalid_type_metric",
+					MType: "invalid_type",
+					Value: float64Ptr(1.0),
+				},
+			},
+			want: want{
+				code: http.StatusBadRequest,
+			},
+		},
+		{
+			name: "invalid json body",
+			body: nil,
+			want: want{
+				code: http.StatusBadRequest,
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req *http.Request
+			if tt.expectErr {
+				req = httptest.NewRequest(
+					http.MethodPost,
+					"/updates/",
+					bytes.NewBuffer([]byte("{invalid json")),
+				)
+			} else {
+				data, err := json.Marshal(tt.body)
+				require.NoError(t, err)
+				req = httptest.NewRequest(http.MethodPost, "/updates/", bytes.NewBuffer(data))
+			}
+			rr := httptest.NewRecorder()
+			r.updatesHandler(rr, req)
+			res := rr.Result()
+			defer res.Body.Close()
+			assert.Equal(t, tt.want.code, res.StatusCode)
+
+			if tt.want.code == http.StatusOK && tt.body != nil {
+				for _, m := range tt.body {
+					if m.ID != "" && model.ValidateType(m.MType) {
+						metric, ok := st.Metrics[m.ID]
+						assert.True(t, ok)
+						if m.MType == string(model.GaugeType) && m.Value != nil {
+							assert.Equal(t, fmt.Sprintf("%v", *m.Value), metric.GetValue())
+						}
+						if m.MType == string(model.CounterType) && m.Delta != nil {
+							assert.Equal(t, fmt.Sprintf("%v", *m.Delta), metric.GetValue())
+						}
+					}
+				}
+			}
 		})
 	}
 }

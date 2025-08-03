@@ -11,7 +11,12 @@ env:
 tasks:
   test:
     cmds:
+      - task: generate
       - go test -v ./...
+
+  generate:
+    cmds:
+      - go generate -v ./...
 
   lint:
     cmds:
@@ -45,7 +50,6 @@ tasks:
       SERVER_PORT: 41112
       ADDRESS: "localhost:${SERVER_PORT}"
       TEMP_FILE: /tmp/test.json
-      DATABASE_DSN: postgresql://yx:yx@localhost:5432/yandex-metrics?sslmode=disable
     cmds:
       - task: build
       - metricstest -test.v -test.run=^TestIteration{{ .TEST_SET_NUM }}$

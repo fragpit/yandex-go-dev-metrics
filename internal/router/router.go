@@ -115,7 +115,11 @@ func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 	metrics, err := rt.repo.GetMetrics(req.Context())
 	if err != nil {
 		rt.logger.Error("error retrieving metrics", slog.Any("error", err))
-		http.Error(w, "error retrieving metrics", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -125,7 +129,11 @@ func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 	tpl, err := template.ParseFiles(templatePath)
 	if err != nil {
 		rt.logger.Error("template parse error", slog.Any("error", err))
-		http.Error(w, "template error", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -133,7 +141,11 @@ func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := tpl.Execute(w, metrics); err != nil {
 		rt.logger.Error("template execute error", slog.Any("error", err))
-		http.Error(w, "template error", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 	}
 }
 
@@ -143,7 +155,11 @@ func (rt Router) pingHandler(w http.ResponseWriter, req *http.Request) {
 			"storage ping failed",
 			slog.Any("error", err),
 		)
-		http.Error(w, "storage ping failed", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -212,7 +228,11 @@ func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 			"error marshalling metric",
 			slog.Any("error", err),
 		)
-		http.Error(w, "error marshalling metric", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -222,7 +242,11 @@ func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 			"error writing response",
 			slog.Any("error", err),
 		)
-		http.Error(w, "error writing response", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -279,7 +303,11 @@ func (rt Router) updateMetricJSON(w http.ResponseWriter, req *http.Request) {
 			slog.Any("error", err),
 			slog.Any("metric", metric),
 		)
-		http.Error(w, "error setting metric", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -336,7 +364,7 @@ func (rt Router) updateMetric(w http.ResponseWriter, req *http.Request) {
 		)
 		http.Error(
 			w,
-			"error saving metric in storage",
+			http.StatusText(http.StatusInternalServerError),
 			http.StatusInternalServerError,
 		)
 		return
@@ -412,7 +440,11 @@ func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
 			"error batch updating metrics",
 			slog.Any("error", err),
 		)
-		http.Error(w, "error setting metric", http.StatusInternalServerError)
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
 		return
 	}
 

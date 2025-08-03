@@ -2,71 +2,57 @@ package postgresql
 
 import (
 	"context"
-	"database/sql"
-	"embed"
 	"errors"
+	"fmt"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
+	"github.com/fragpit/yandex-go-dev-metrics/pkg/retry"
 )
 
 var _ repository.Repository = (*Storage)(nil)
 
 type Storage struct {
-	DB *sql.DB
+	DB      *pgxpool.Pool
+	retrier *retry.Retrier
 }
 
-//go:embed migrations/*.sql
-var migrationsFS embed.FS
-
 func NewStorage(ctx context.Context, dbDSN string) (*Storage, error) {
-	db, err := sql.Open("postgres", dbDSN)
+	db, err := pgxpool.New(ctx, dbDSN)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating pgxpool: %w", err)
 	}
 
-	if err := db.PingContext(ctx); err != nil {
-		return nil, err
+	if err := db.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("db ping error: %w", err)
 	}
 
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
-	if err != nil {
-		return nil, err
+	if err := runMigrations(ctx, db); err != nil {
+		return nil, fmt.Errorf("error running migrations: %w", err)
 	}
 
-	// m, err := migrate.NewWithDatabaseInstance(
-	// 	"file:///migrations",
-	// 	"postgresql",
-	// 	driver,
-	// )
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	sourceDriver, err := iofs.New(migrationsFS, "migrations")
-	if err != nil {
-		return nil, err
-	}
-
-	m, err := migrate.NewWithInstance("iofs", sourceDriver, "postgresql", driver)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := m.Up(); err != nil {
-		if !errors.Is(err, migrate.ErrNoChange) {
-			return nil, err
+	isRetryable := func(err error) bool {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			return pgerrcode.IsConnectionException(pgErr.Code) ||
+				pgerrcode.IsOperatorIntervention(pgErr.Code)
 		}
+
+		var connErr *pgconn.ConnectError
+		return errors.As(err, &connErr)
 	}
+
+	retrier := retry.New(isRetryable)
 
 	return &Storage{
-		DB: db,
+		DB:      db,
+		retrier: retrier,
 	}, nil
 }
 
@@ -74,9 +60,9 @@ func (s *Storage) GetMetrics(
 	ctx context.Context,
 ) (map[string]model.Metric, error) {
 	q := `SELECT id, type, value FROM metrics`
-	rows, err := s.DB.QueryContext(ctx, q)
+	rows, err := s.DB.Query(ctx, q)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error querying db: %w", err)
 	}
 	defer rows.Close()
 
@@ -84,7 +70,7 @@ func (s *Storage) GetMetrics(
 	for rows.Next() {
 		var id, metricType, value string
 		if err := rows.Scan(&id, &metricType, &value); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error reading values: %w", err)
 		}
 
 		metric, err := model.NewMetric(id, model.MetricType(metricType))
@@ -110,11 +96,11 @@ func (s *Storage) GetMetric(
 	name string,
 ) (model.Metric, error) {
 	q := `SELECT id, type, value FROM metrics WHERE id = $1`
-	row := s.DB.QueryRowContext(ctx, q, name)
+	row := s.DB.QueryRow(ctx, q, name)
 
 	var id, metricType, value string
 	if err := row.Scan(&id, &metricType, &value); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading values: %w", err)
 	}
 
 	metric, err := model.NewMetric(id, model.MetricType(metricType))
@@ -152,7 +138,7 @@ func (s *Storage) SetOrUpdateMetric(
 		`
 	}
 
-	_, err := s.DB.ExecContext(
+	_, err := s.DB.Exec(
 		ctx,
 		q,
 		metric.GetID(),
@@ -160,7 +146,7 @@ func (s *Storage) SetOrUpdateMetric(
 		metric.GetValue(),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("error querying db: %w", err)
 	}
 
 	return nil
@@ -170,48 +156,55 @@ func (s *Storage) SetOrUpdateMetricBatch(
 	ctx context.Context,
 	metrics []model.Metric,
 ) error {
-	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return err
-	}
-
 	qCounter := `
-	INSERT INTO metrics (id, type, value)
-	VALUES ($1, $2, $3)
-	ON CONFLICT (id) DO
-	UPDATE SET value = CAST(metrics.value AS BIGINT) +
-											CAST(EXCLUDED.value AS BIGINT)
-	`
+    INSERT INTO metrics (id, type, value)
+    VALUES (@id, @type, @value)
+    ON CONFLICT (id) DO
+    UPDATE SET value = CAST(metrics.value AS BIGINT) +
+                            CAST(EXCLUDED.value AS BIGINT)
+    `
 
 	qGauge := `
-	INSERT INTO metrics (id, type, value)
-	VALUES ($1, $2, $3)
-	ON CONFLICT (id) DO
-	UPDATE SET value = EXCLUDED.value
-	`
+    INSERT INTO metrics (id, type, value)
+    VALUES (@id, @type, @value)
+    ON CONFLICT (id) DO
+    UPDATE SET value = EXCLUDED.value
+    `
+
+	b := &pgx.Batch{}
 
 	for _, m := range metrics {
 		var q string
+		args := pgx.NamedArgs{
+			"id":    m.GetID(),
+			"type":  m.GetType(),
+			"value": m.GetValue(),
+		}
+
 		if m.GetType() == "counter" {
 			q = qCounter
 		} else {
 			q = qGauge
 		}
 
-		_, err := tx.ExecContext(
-			ctx,
-			q,
-			m.GetID(),
-			m.GetType(),
-			m.GetValue(),
-		)
+		b.Queue(q, args)
+	}
+
+	br := s.DB.SendBatch(ctx, b)
+	defer br.Close()
+
+	for i := 0; i < b.Len(); i++ {
+		_, err := br.Exec()
 		if err != nil {
-			tx.Rollback()
-			return err
+			return fmt.Errorf(
+				"error executing batch command %d: %w",
+				i,
+				err,
+			)
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 func (s *Storage) Initialize(metrics []model.Metric) error {
@@ -220,14 +213,26 @@ func (s *Storage) Initialize(metrics []model.Metric) error {
 
 func (s *Storage) Ping(ctx context.Context) error {
 	if s.DB == nil {
-		return nil
+		return fmt.Errorf("database connection is not initialized")
 	}
-	return s.DB.PingContext(ctx)
+
+	op := func(ctx context.Context) error {
+		return s.DB.Ping(ctx)
+	}
+
+	if err := s.retrier.Do(ctx, op); err != nil {
+		fmt.Println("test")
+		return err
+	}
+
+	return nil
 }
 
-func (s *Storage) Close() error {
+func (s *Storage) Close(ctx context.Context) error {
 	if s.DB != nil {
-		return s.DB.Close()
+		s.DB.Close()
+		return nil
 	}
+
 	return nil
 }
