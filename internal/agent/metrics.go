@@ -3,6 +3,9 @@ package agent
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +14,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/fragpit/yandex-go-dev-metrics/internal/config"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/go-resty/resty/v2"
 )
@@ -22,12 +26,14 @@ const (
 type Metrics struct {
 	logger  *slog.Logger
 	counter int64
+	cfg     *config.AgentConfig
 	Metrics map[string]model.Metric
 }
 
-func NewMetrics(l *slog.Logger) *Metrics {
+func NewMetrics(l *slog.Logger, cfg *config.AgentConfig) *Metrics {
 	return &Metrics{
 		logger:  l,
+		cfg:     cfg,
 		Metrics: make(map[string]model.Metric),
 	}
 }
@@ -149,8 +155,8 @@ func (m *Metrics) pollMetrics() error {
 	return nil
 }
 
-func (m *Metrics) reportMetrics(serverURL string) {
-	updateURL := serverURL + "/updates/"
+func (m *Metrics) reportMetrics() {
+	updateURL := m.cfg.ServerURL + "/updates/"
 
 	client := resty.New()
 	client.
@@ -161,6 +167,10 @@ func (m *Metrics) reportMetrics(serverURL string) {
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
 		OnBeforeRequest(gzipRequestMiddleware())
+
+	if len(m.cfg.SecretKey) > 0 {
+		client.OnBeforeRequest(checksumRequestMiddleware(m.cfg.SecretKey))
+	}
 
 	var (
 		data    []byte
@@ -237,7 +247,7 @@ func gzipRequestMiddleware() resty.RequestMiddleware {
 		if !ok {
 			data, err := json.Marshal(req.Body)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to marshal body %w", err)
 			}
 			bodyBytes = data
 		}
@@ -252,6 +262,29 @@ func gzipRequestMiddleware() resty.RequestMiddleware {
 
 		req.SetBody(buf.Bytes())
 		req.SetHeader("Content-Encoding", "gzip")
+
+		return nil
+	}
+}
+
+func checksumRequestMiddleware(key []byte) resty.RequestMiddleware {
+	return func(c *resty.Client, req *resty.Request) error {
+		mac := hmac.New(sha256.New, key)
+
+		bodyBytes, ok := req.Body.([]byte)
+		if !ok {
+			data, err := json.Marshal(req.Body)
+			if err != nil {
+				return fmt.Errorf("failed to marshal body %w", err)
+			}
+			bodyBytes = data
+		}
+
+		mac.Write(bodyBytes)
+		sum := mac.Sum(nil)
+		sumEncoded := base64.RawStdEncoding.EncodeToString(sum)
+
+		req.SetHeader("HashSHA256", sumEncoded)
 
 		return nil
 	}

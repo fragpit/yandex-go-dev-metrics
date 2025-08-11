@@ -54,6 +54,7 @@ func Run() error {
 	router := router.NewRouter(
 		logger.With("service", "router"),
 		st,
+		cfg.SecretKey,
 	)
 
 	logger.Info("starting server", slog.String("address", cfg.Address))

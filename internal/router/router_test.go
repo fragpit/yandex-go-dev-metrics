@@ -146,7 +146,7 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
 
-			r := NewRouter(l, st)
+			r := NewRouter(l, st, nil)
 
 			r.updateMetricJSON(rr, req)
 			res := rr.Result()
@@ -272,7 +272,7 @@ func TestRouter_getMetricJSON(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			l := slog.New(slog.DiscardHandler)
-			r := NewRouter(l, st)
+			r := NewRouter(l, st, nil)
 
 			r.getMetricJSON(rr, req)
 			res := rr.Result()
@@ -292,7 +292,7 @@ func TestRouter_getMetricJSON(t *testing.T) {
 func TestRouter_TestRoutes(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
-	r := NewRouter(l, st)
+	r := NewRouter(l, st, nil)
 
 	ts := httptest.NewServer(r.router)
 	defer ts.Close()
@@ -544,7 +544,7 @@ func TestRouter_updateMetric(t *testing.T) {
 			)
 			rr := httptest.NewRecorder()
 			l := slog.New(slog.DiscardHandler)
-			r := NewRouter(l, st)
+			r := NewRouter(l, st, nil)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -637,7 +637,7 @@ func TestRouter_getMetric(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 			l := slog.New(slog.DiscardHandler)
-			r := NewRouter(l, st)
+			r := NewRouter(l, st, nil)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -706,7 +706,7 @@ func TestRouter_pingHandler(t *testing.T) {
 			req := httptest.NewRequest("GET", "/ping", nil)
 			rr := httptest.NewRecorder()
 
-			router := NewRouter(l, storeMock)
+			router := NewRouter(l, storeMock, nil)
 			router.pingHandler(rr, req)
 
 			assert.Equal(t, tt.want.code, rr.Code)
@@ -718,7 +718,7 @@ func TestRouter_pingHandler(t *testing.T) {
 func TestRouter_updatesHandler(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
-	r := NewRouter(l, st)
+	r := NewRouter(l, st, nil)
 
 	type want struct {
 		code int

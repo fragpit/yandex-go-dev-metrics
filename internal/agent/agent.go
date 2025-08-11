@@ -41,7 +41,7 @@ func Run() error {
 	pollTick := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
 	reportTick := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
 
-	m := NewMetrics(logger)
+	m := NewMetrics(logger, cfg)
 	if err := m.pollMetrics(); err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func Run() error {
 			}
 		case <-reportTick.C:
 			logger.Info("reporting metrics")
-			m.reportMetrics(cfg.ServerURL)
+			m.reportMetrics()
 		case <-ctx.Done():
 			logger.Info("agent shut down")
 			return nil
