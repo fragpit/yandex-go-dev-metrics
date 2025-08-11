@@ -10,7 +10,7 @@ import (
 func TestMetrics_register(t *testing.T) {
 	type fields struct {
 		counter int64
-		Metrics map[string]*model.Metrics
+		Metrics map[string]model.Metric
 	}
 
 	type args struct {
@@ -29,7 +29,7 @@ func TestMetrics_register(t *testing.T) {
 			name: "positive test #1",
 			fields: fields{
 				counter: 0,
-				Metrics: map[string]*model.Metrics{},
+				Metrics: map[string]model.Metric{},
 			},
 			args: args{
 				tp:    model.CounterType,
@@ -42,14 +42,14 @@ func TestMetrics_register(t *testing.T) {
 			name: "metric type not set",
 			fields: fields{
 				counter: 0,
-				Metrics: map[string]*model.Metrics{},
+				Metrics: map[string]model.Metric{},
 			},
 			args: args{
 				tp:    "",
 				name:  "test_name",
 				value: "1",
 			},
-			expectedErr: model.ErrMetricTypeNotSet,
+			expectedErr: model.ErrInvalidMetricType,
 		},
 	}
 

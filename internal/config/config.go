@@ -14,7 +14,6 @@ type AgentConfig struct {
 	ServerURL      string `yaml:"address"`
 	PollInterval   int    `yaml:"poll"`
 	ReportInterval int    `yaml:"report"`
-	Restore        bool   `yaml:"restore"`
 }
 
 func NewAgentConfig() *AgentConfig {
@@ -39,16 +38,11 @@ func NewAgentConfig() *AgentConfig {
 		10,
 		"частота отправки метрик на сервер (по умолчанию 10 секунд)",
 	)
-	restore := flag.Bool(
-		"rs",
-		false,
-		"",
-	)
 
 	flag.Parse()
 
 	finalLogLevel := *logLevel
-	if env := os.Getenv("DEBUG"); env != "" {
+	if env := os.Getenv("LOG_LEVEL"); env != "" {
 		finalLogLevel = env
 	}
 
@@ -85,20 +79,6 @@ func NewAgentConfig() *AgentConfig {
 		}
 	}
 
-	finalRestore := *restore
-	if envRestore := os.Getenv("RESTORE"); envRestore != "" {
-		var err error
-		finalRestore, err = strconv.ParseBool(envRestore)
-		if err != nil {
-			slog.Error(
-				"error converting parameter",
-				slog.String("parameter", "RESTORE"),
-				slog.Any("error", err),
-			)
-			os.Exit(1)
-		}
-	}
-
 	if !strings.HasPrefix(finalServerURL, "http://") {
 		finalServerURL = "http://" + finalServerURL
 	}
@@ -108,7 +88,6 @@ func NewAgentConfig() *AgentConfig {
 		ServerURL:      finalServerURL,
 		PollInterval:   finalPollInterval,
 		ReportInterval: finalReportInterval,
-		Restore:        finalRestore,
 	}
 }
 
@@ -118,6 +97,7 @@ type ServerConfig struct {
 	StoreInterval time.Duration `yaml:"store_interval"`
 	FileStorePath string        `yaml:"file_store_path"`
 	Restore       bool          `yaml:"restore"`
+	DatabaseDSN   string        `yaml:"database_dsn"`
 }
 
 func NewServerConfig() *ServerConfig {
@@ -141,14 +121,20 @@ func NewServerConfig() *ServerConfig {
 
 	fileStorePath := flag.String(
 		"f",
-		"/tmp/metrics/metrics.json",
-		"путь к файлу для сохранения метрик (по умолчанию metrics)",
+		"/tmp/metrics.json",
+		"путь к файлу для сохранения метрик (по умолчанию /tmp/metrics.json)",
 	)
 
 	restore := flag.Bool(
 		"r",
 		false,
 		"восстанавливать метрики из файла при запуске сервера (по умолчанию false)",
+	)
+
+	dbDSN := flag.String(
+		"d",
+		"",
+		"строка подключения к БД, если не указана используется memory storage (по умолчанию пусто)",
 	)
 
 	flag.Parse()
@@ -197,11 +183,39 @@ func NewServerConfig() *ServerConfig {
 		}
 	}
 
+	finalDBDSN := *dbDSN
+	if env := os.Getenv("DATABASE_DSN"); env != "" {
+		finalDBDSN = env
+	}
+
 	return &ServerConfig{
 		LogLevel:      finalLogLevel,
 		Address:       finalAddress,
 		StoreInterval: storeIntervalDuration,
 		FileStorePath: finalFileStorePath,
 		Restore:       finalRestore,
+		DatabaseDSN:   finalDBDSN,
 	}
+}
+
+func (c *AgentConfig) Debug() {
+	slog.Info(
+		"agent config",
+		slog.String("log_level", c.LogLevel),
+		slog.String("server_url", c.ServerURL),
+		slog.Int("poll_interval", c.PollInterval),
+		slog.Int("report_interval", c.ReportInterval),
+	)
+}
+
+func (c *ServerConfig) Debug() {
+	slog.Info(
+		"server config",
+		slog.String("log_level", c.LogLevel),
+		slog.String("address", c.Address),
+		slog.Duration("store_interval", c.StoreInterval),
+		slog.String("file_store_path", c.FileStorePath),
+		slog.Bool("restore", c.Restore),
+		slog.String("database_dsn", c.DatabaseDSN),
+	)
 }

@@ -22,13 +22,13 @@ const (
 type Metrics struct {
 	logger  *slog.Logger
 	counter int64
-	Metrics map[string]*model.Metrics
+	Metrics map[string]model.Metric
 }
 
 func NewMetrics(l *slog.Logger) *Metrics {
 	return &Metrics{
 		logger:  l,
-		Metrics: make(map[string]*model.Metrics),
+		Metrics: make(map[string]model.Metric),
 	}
 }
 
@@ -150,61 +150,71 @@ func (m *Metrics) pollMetrics() error {
 }
 
 func (m *Metrics) reportMetrics(serverURL string) {
-	updateURL := serverURL + "/update"
+	updateURL := serverURL + "/updates/"
 
 	client := resty.New()
 	client.
 		SetTimeout(clientPostTimeout).
-		SetRetryCount(2).
+		SetRetryCount(3).
+		SetRetryWaitTime(1*time.Second).
+		SetRetryMaxWaitTime(5*time.Second).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
 		OnBeforeRequest(gzipRequestMiddleware())
 
+	var (
+		data    []byte
+		err     error
+		metrics []*model.Metrics
+	)
+
 	for _, metric := range m.Metrics {
-		data, err := json.Marshal(metric)
-		if err != nil {
-			m.logger.Error(
-				"error marshaling metric",
-				slog.String("metric_id", metric.ID),
-				slog.Any("error", err),
-			)
-			continue
-		}
+		m := metric.ToJSON()
+		metrics = append(metrics, m)
+	}
 
-		resp, err := client.R().
-			SetBody(data).
-			Post(updateURL)
-		if err != nil {
-			m.logger.Error(
-				"error reporting metrics",
-				slog.Any("error", err),
-			)
-			return
-		}
+	data, err = json.Marshal(metrics)
+	if err != nil {
+		m.logger.Error(
+			"error marshaling metrics",
+			slog.Any("error", err),
+		)
+		return
+	}
 
-		if resp.StatusCode() != http.StatusOK {
-			m.logger.Error(
-				"non-OK status code",
-				slog.Int("status_code", resp.StatusCode()),
-			)
-			return
-		}
+	resp, err := client.R().
+		SetBody(data).
+		Post(updateURL)
+	if err != nil {
+		m.logger.Error(
+			"error reporting metrics",
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		m.logger.Error(
+			"non-OK status code",
+			slog.Int("status_code", resp.StatusCode()),
+		)
+		return
 	}
 
 	m.reset()
 }
 
 func (m *Metrics) register(tp model.MetricType, name, value string) error {
-	metric := &model.Metrics{
-		ID:    name,
-		MType: string(tp),
+	metric, err := model.NewMetric(name, tp)
+	if err != nil {
+		return err
 	}
 
 	if err := metric.SetValue(value); err != nil {
 		return err
 	}
 
-	m.Metrics[metric.ID] = metric
+	m.Metrics[metric.GetID()] = metric
 	return nil
 }
 

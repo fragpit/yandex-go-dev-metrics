@@ -25,7 +25,7 @@ func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
 				)
 				http.Error(
 					w,
-					"error reading request body",
+					http.StatusText(http.StatusInternalServerError),
 					http.StatusInternalServerError,
 				)
 				return

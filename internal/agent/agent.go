@@ -12,6 +12,7 @@ import (
 )
 
 func Run() error {
+
 	ctx, cancel := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGTERM,
@@ -20,6 +21,10 @@ func Run() error {
 	defer cancel()
 
 	cfg := config.NewAgentConfig()
+	if cfg.LogLevel == "debug" {
+		cfg.Debug()
+	}
+
 	var logLevel slog.Level
 	switch cfg.LogLevel {
 	case "debug":
@@ -31,6 +36,7 @@ func Run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: logLevel,
 	}))
+	logger.Info("starting agent")
 
 	pollTick := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
 	reportTick := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)

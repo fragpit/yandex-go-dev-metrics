@@ -3,6 +3,7 @@ package cacher
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -12,7 +13,6 @@ import (
 )
 
 type Cacher struct {
-	ctx     context.Context
 	logger  *slog.Logger
 	storage repository.Repository
 
@@ -21,7 +21,6 @@ type Cacher struct {
 }
 
 func NewCacher(
-	ctx context.Context,
 	logger *slog.Logger,
 	storage repository.Repository,
 
@@ -29,7 +28,6 @@ func NewCacher(
 	interval time.Duration,
 ) *Cacher {
 	return &Cacher{
-		ctx:     ctx,
 		logger:  logger,
 		storage: storage,
 
@@ -38,54 +36,85 @@ func NewCacher(
 	}
 }
 
-func (s *Cacher) Run() error {
+func (s *Cacher) Run(ctx context.Context) error {
 	s.logger.Info("cacher started")
 	defer s.logger.Info("cacher stopped")
 
-	runPeriodically(s.ctx, s.saveMetrics, s.interval)
+	if err := runPeriodically(ctx, s.saveMetrics, s.interval); err != nil {
+		return fmt.Errorf("error running cacher: %w", err)
+	}
+
 	return nil
 }
 
-func (s *Cacher) Restore() ([]*model.Metrics, error) {
+func (s *Cacher) Restore() ([]model.Metric, error) {
 	file, err := os.Open(s.filename)
+	if os.IsNotExist(err) {
+		s.logger.Info("no backup file found, skipping restore")
+		return nil, nil
+	}
 	if err != nil {
 		s.logger.Error(
 			"failed to open file for restoring metrics",
 			slog.String("filename", s.filename),
 			slog.String("error", err.Error()),
 		)
-		return nil, err
+		return nil, fmt.Errorf("failed to open file for restoring metrics: %w", err)
 	}
 	defer file.Close()
 
-	var metricsList []*model.Metrics
-	if err := json.NewDecoder(file).Decode(&metricsList); err != nil {
-		s.logger.Error(
-			"failed to decode metrics from file",
-			slog.String("error", err.Error()),
-		)
-		return nil, err
+	var metricsList []model.Metric
+	decoder := json.NewDecoder(file)
+
+	if _, err := decoder.Token(); err != nil {
+		return nil, fmt.Errorf("error decoding json: %w", err)
+	}
+
+	for decoder.More() {
+		var metric model.Metrics
+		if err := decoder.Decode(&metric); err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+
+			s.logger.Error(
+				"failed to decode metric from file",
+				slog.String("error", err.Error()),
+			)
+			return nil, fmt.Errorf("error decoding json: %w", err)
+		}
+
+		m, err := model.MetricFromJSON(&metric)
+		if err != nil {
+			s.logger.Error(
+				"failed to convert metric from json",
+				slog.String("error", err.Error()),
+			)
+			return nil, fmt.Errorf("failed to convert metric from json: %w", err)
+		}
+
+		metricsList = append(metricsList, m)
 	}
 
 	return metricsList, nil
 }
 
-func (s *Cacher) saveMetrics(ctx context.Context) {
+func (s *Cacher) saveMetrics(ctx context.Context) error {
 	s.logger.Info("saving metrics")
 	metrics, err := s.storage.GetMetrics(ctx)
 	if err != nil {
 		s.logger.Error("failed to get metrics", slog.String("error", err.Error()))
-		return
+		return fmt.Errorf("failed to get metrics: %w", err)
 	}
 
 	if len(metrics) == 0 {
 		s.logger.Info("no metrics to save")
-		return
+		return nil
 	}
 
-	var metricsList []*model.Metrics
+	var metricsList []model.Metrics
 	for _, metric := range metrics {
-		metricsList = append(metricsList, metric)
+		metricsList = append(metricsList, *metric.ToJSON())
 	}
 
 	data, err := json.Marshal(metricsList)
@@ -94,7 +123,7 @@ func (s *Cacher) saveMetrics(ctx context.Context) {
 			"failed to marshal metrics",
 			slog.String("error", err.Error()),
 		)
-		return
+		return fmt.Errorf("failed to marshal metrics: %w", err)
 	}
 
 	file, err := os.OpenFile(s.filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
@@ -104,7 +133,7 @@ func (s *Cacher) saveMetrics(ctx context.Context) {
 			slog.String("filename", s.filename),
 			slog.String("error", err.Error()),
 		)
-		return
+		return fmt.Errorf("failed to open file for saving metrics: %w", err)
 	}
 	defer file.Close()
 
@@ -113,7 +142,7 @@ func (s *Cacher) saveMetrics(ctx context.Context) {
 			"failed to write metrics to file",
 			slog.String("error", err.Error()),
 		)
-		return
+		return fmt.Errorf("failed to write metrics to file: %w", err)
 	}
 
 	if err := file.Sync(); err != nil {
@@ -121,16 +150,18 @@ func (s *Cacher) saveMetrics(ctx context.Context) {
 			"failed to sync file",
 			slog.String("error", err.Error()),
 		)
-		return
+		return fmt.Errorf("failed to sync file: %w", err)
 	}
 	s.logger.Info("metrics saved", slog.Int("count", len(metricsList)))
+
+	return nil
 }
 
 func runPeriodically(
 	ctx context.Context,
-	f func(ctx context.Context),
+	f func(ctx context.Context) error,
 	period time.Duration,
-) {
+) error {
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
 
@@ -140,9 +171,11 @@ func runPeriodically(
 			if ctx.Err() != nil {
 				continue
 			}
-			f(ctx)
+			if err := f(ctx); err != nil {
+				return err
+			}
 		case <-ctx.Done():
-			return
+			return nil
 		}
 	}
 }

@@ -13,20 +13,20 @@ var _ repository.Repository = (*MemoryStorage)(nil)
 
 type MemoryStorage struct {
 	mu      sync.RWMutex
-	Metrics map[string]*model.Metrics
+	Metrics map[string]model.Metric
 }
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
 		mu:      sync.RWMutex{},
-		Metrics: map[string]*model.Metrics{},
+		Metrics: map[string]model.Metric{},
 	}
 }
 
 func (s *MemoryStorage) GetMetric(
 	ctx context.Context,
 	name string,
-) (*model.Metrics, error) {
+) (model.Metric, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -39,30 +39,47 @@ func (s *MemoryStorage) GetMetric(
 
 func (s *MemoryStorage) SetOrUpdateMetric(
 	ctx context.Context,
-	metric *model.Metrics,
+	metric model.Metric,
 ) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if m, ok := s.Metrics[metric.ID]; ok {
-		if m.MType != metric.MType {
+	if m, ok := s.Metrics[metric.GetID()]; ok {
+		if m.GetType() != metric.GetType() {
 			return errors.New("metric already exist with another type")
 		}
 
-		if metric.MType == string(model.GaugeType) {
-			s.Metrics[metric.ID] = metric
-			return nil
+		if err := m.SetValue(metric.GetValue()); err != nil {
+			return err
 		}
 
-		if metric.MType == string(model.CounterType) {
-			if m.Delta == nil {
-				m.Delta = metric.Delta
-			} else {
-				*m.Delta += *metric.Delta
-			}
-		}
 	} else {
-		s.Metrics[metric.ID] = metric
+		s.Metrics[metric.GetID()] = metric
+	}
+
+	return nil
+}
+
+func (s *MemoryStorage) SetOrUpdateMetricBatch(
+	ctx context.Context,
+	metrics []model.Metric,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, metric := range metrics {
+		if m, ok := s.Metrics[metric.GetID()]; ok {
+			if m.GetType() != metric.GetType() {
+				return errors.New("metric already exist with another type")
+			}
+
+			if err := m.SetValue(metric.GetValue()); err != nil {
+				return err
+			}
+
+		} else {
+			s.Metrics[metric.GetID()] = metric
+		}
 	}
 
 	return nil
@@ -70,24 +87,25 @@ func (s *MemoryStorage) SetOrUpdateMetric(
 
 func (s *MemoryStorage) GetMetrics(
 	ctx context.Context,
-) (map[string]*model.Metrics, error) {
+) (map[string]model.Metric, error) {
 	return s.Metrics, nil
 }
 
-func (s *MemoryStorage) Initialize(metrics []*model.Metrics) error {
+func (s *MemoryStorage) Initialize(metrics []model.Metric) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if len(metrics) == 0 {
-		return nil
-	}
-
 	for _, metric := range metrics {
-		if metric == nil || metric.ID == "" {
-			continue
-		}
-		s.Metrics[metric.ID] = metric
+		s.Metrics[metric.GetID()] = metric
 	}
 
+	return nil
+}
+
+func (s *MemoryStorage) Ping(_ context.Context) error {
+	return nil
+}
+
+func (s *MemoryStorage) Close(ctx context.Context) error {
 	return nil
 }

@@ -1,0 +1,77 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  BUILD_DIR: "{{ .ROOT_DIR }}/bin"
+
+env:
+  LOG_LEVEL: "debug"
+
+tasks:
+  test:
+    cmds:
+      - task: generate
+      - go test -v ./...
+
+  generate:
+    cmds:
+      - go generate -v ./...
+
+  lint:
+    cmds:
+      - golangci-lint-v2 run
+
+  test-lint:
+    cmds:
+      - task: test
+      - task: lint
+
+  build:
+    cmds:
+      - mkdir -p {{ .BUILD_DIR }}
+      - go build -o {{ .BUILD_DIR }} {{ .ROOT_DIR }}/cmd/...
+
+  run-server:
+    cmds:
+      - go run {{ .ROOT_DIR }}/cmd/server/main.go {{ .CLI_ARGS }}
+
+  run-agent:
+    cmds:
+      - go run {{ .ROOT_DIR }}/cmd/agent/main.go {{ .CLI_ARGS }}
+
+  run-metricstest:
+    cmds:
+      - task: "run-metricstest:"
+
+  run-metricstest:*:
+    vars:
+      TEST_SET_NUM: "{{ index .MATCH 0 | default 9 }}"
+      SERVER_PORT: 41112
+      ADDRESS: "localhost:${SERVER_PORT}"
+      TEMP_FILE: /tmp/test.json
+    cmds:
+      - task: build
+      - metricstest -test.v -test.run=^TestIteration{{ .TEST_SET_NUM }}$
+          -agent-binary-path={{ .BUILD_DIR }}/agent
+          -binary-path={{ .BUILD_DIR }}/server
+          -file-storage-path={{ .TEMP_FILE }}
+          -server-port={{ .SERVER_PORT }}
+          -source-path=.
+      - rm -f {{ .TEMP_FILE }}
+
+  run-metricstest-pg:*:
+    vars:
+      TEST_SET_NUM: "{{ index .MATCH 0 | default 9 }}"
+      SERVER_PORT: 41112
+      ADDRESS: "localhost:${SERVER_PORT}"
+      DATABASE_DSN: postgresql://yx:yx@localhost:5432/yandex-metrics?sslmode=disable
+    cmds:
+      - task: build
+      - metricstest -test.v -test.run=^TestIteration{{ .TEST_SET_NUM }}$
+          -agent-binary-path={{ .BUILD_DIR }}/agent
+          -binary-path={{ .BUILD_DIR }}/server
+          -database-dsn={{ .DATABASE_DSN }}
+          -server-port={{ .SERVER_PORT }}
+          -source-path=.
+      - rm -f {{ .TEMP_FILE }}
