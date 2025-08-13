@@ -13,6 +13,7 @@ type Repository interface {
 	SetOrUpdateMetric(ctx context.Context, metric model.Metric) error
 	SetOrUpdateMetricBatch(ctx context.Context, metrics []model.Metric) error
 	Initialize([]model.Metric) error
+	Reset() error
 	Ping(ctx context.Context) error
 	Close(ctx context.Context) error
 }

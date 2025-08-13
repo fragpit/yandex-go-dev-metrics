@@ -15,6 +15,7 @@ type AgentConfig struct {
 	PollInterval   int
 	ReportInterval int
 	SecretKey      []byte
+	RateLimit      int
 }
 
 func NewAgentConfig() *AgentConfig {
@@ -46,6 +47,12 @@ func NewAgentConfig() *AgentConfig {
 		"k",
 		"",
 		"секретный ключ для подписи сообщений",
+	)
+
+	rateLimit := flag.Int(
+		"l",
+		1,
+		"лимит одновременных запросов к серверу (по умолчанию 1)",
 	)
 
 	flag.Parse()
@@ -96,12 +103,27 @@ func NewAgentConfig() *AgentConfig {
 		finalSecretKey = env
 	}
 
+	finalRateLimit := *rateLimit
+	if env := os.Getenv("RATE_LIMIT"); env != "" {
+		var err error
+		finalRateLimit, err = strconv.Atoi(env)
+		if err != nil {
+			slog.Error(
+				"error converting parameter",
+				slog.String("parameter", "RATE_LIMIT"),
+				slog.Any("error", err),
+			)
+			os.Exit(1)
+		}
+	}
+
 	return &AgentConfig{
 		LogLevel:       finalLogLevel,
 		ServerURL:      finalServerURL,
 		PollInterval:   finalPollInterval,
 		ReportInterval: finalReportInterval,
 		SecretKey:      []byte(finalSecretKey),
+		RateLimit:      finalRateLimit,
 	}
 }
 

@@ -211,6 +211,10 @@ func (s *Storage) Initialize(metrics []model.Metric) error {
 	return nil
 }
 
+func (s *Storage) Reset() error {
+	return nil
+}
+
 func (s *Storage) Ping(ctx context.Context) error {
 	if s.DB == nil {
 		return fmt.Errorf("database connection is not initialized")
@@ -221,7 +225,6 @@ func (s *Storage) Ping(ctx context.Context) error {
 	}
 
 	if err := s.retrier.Do(ctx, op); err != nil {
-		fmt.Println("test")
 		return err
 	}
 

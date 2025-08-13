@@ -51,12 +51,6 @@ func Run() error {
 		st = memstorage.NewMemoryStorage()
 	}
 
-	router := router.NewRouter(
-		logger.With("service", "router"),
-		st,
-		cfg.SecretKey,
-	)
-
 	logger.Info("starting server", slog.String("address", cfg.Address))
 
 	if cfg.DatabaseDSN == "" {
@@ -107,6 +101,12 @@ func Run() error {
 			}
 		}()
 	}
+
+	router := router.NewRouter(
+		logger.With("service", "router"),
+		st,
+		cfg.SecretKey,
+	)
 
 	if err := router.Run(ctx, cfg.Address); err != nil {
 		return err

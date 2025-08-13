@@ -703,7 +703,7 @@ func TestRouter_pingHandler(t *testing.T) {
 				Times(1).
 				Return(tt.err)
 
-			req := httptest.NewRequest("GET", "/ping", nil)
+			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 			rr := httptest.NewRecorder()
 
 			router := NewRouter(l, storeMock, nil)

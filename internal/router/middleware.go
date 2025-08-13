@@ -46,7 +46,6 @@ func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
 			}
 		}
 
-		// Choose which body to log
 		logBody := string(bodyBytes)
 		if len(decompressedBody) > 0 {
 			logBody = string(decompressedBody)
