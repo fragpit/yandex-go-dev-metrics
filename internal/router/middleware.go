@@ -3,6 +3,9 @@ package router
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"net/http"
@@ -43,7 +46,6 @@ func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
 			}
 		}
 
-		// Choose which body to log
 		logBody := string(bodyBytes)
 		if len(decompressedBody) > 0 {
 			logBody = string(decompressedBody)
@@ -55,14 +57,10 @@ func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
 			slog.String("query", r.URL.RawQuery),
 			slog.String("user_agent", r.UserAgent()),
 			slog.String("referer", r.Referer()),
-			slog.String("content_type", r.Header.Get("Content-Type")),
-			slog.String("content_encoding", r.Header.Get("Content-Encoding")),
 			slog.Int("content_length", int(r.ContentLength)),
 			slog.String("host", r.Host),
 			slog.String("protocol", r.Proto),
-			slog.String("request_id", r.Header.Get("X-Request-ID")),
-			slog.String("accept", r.Header.Get("Accept")),
-			slog.String("accept_encoding", r.Header.Get("Accept-Encoding")),
+			slog.Any("headers", r.Header),
 			slog.String("body", logBody),
 		)
 
@@ -124,6 +122,50 @@ func (rt *Router) decompressMiddleware(h http.Handler) http.Handler {
 			r.Header.Del("Content-Encoding")
 			r.ContentLength = int64(len(decompressed))
 		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+func (rt *Router) checksumMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("HashSHA256") == "" {
+			rt.logger.Error("checksum header is nil or unset")
+			http.Error(
+				w,
+				"checksum header is nil or unset",
+				http.StatusBadRequest,
+			)
+			return
+		}
+
+		mac := hmac.New(sha256.New, rt.secretKey)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			rt.logger.Error(
+				"failed to read request body",
+				slog.Any("error", err),
+			)
+			http.Error(
+				w,
+				http.StatusText(http.StatusInternalServerError),
+				http.StatusInternalServerError,
+			)
+			return
+		}
+
+		mac.Write(body)
+		sum := mac.Sum(nil)
+		sumEncoded := base64.RawStdEncoding.EncodeToString(sum)
+		sumFromHeader := r.Header.Get("HashSHA256")
+
+		if sumFromHeader != sumEncoded {
+			rt.logger.Error("invalid request checksum")
+			http.Error(w, "invalid request checksum", http.StatusBadRequest)
+			return
+		}
+
+		r.Body = io.NopCloser(bytes.NewReader(body))
 
 		h.ServeHTTP(w, r)
 	})

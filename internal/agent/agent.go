@@ -5,14 +5,19 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/config"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 )
 
-func Run() error {
+var counter atomic.Int64
 
+func Run() error {
 	ctx, cancel := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGTERM,
@@ -38,27 +43,60 @@ func Run() error {
 	}))
 	logger.Info("starting agent")
 
-	pollTick := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
-	reportTick := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
+	st := memstorage.NewMemoryStorage()
 
-	m := NewMetrics(logger)
-	if err := m.pollMetrics(); err != nil {
-		return err
-	}
+	pollDuration := time.Duration(cfg.PollInterval) * time.Second
+	reportDuration := time.Duration(cfg.ReportInterval) * time.Second
 
-	for {
-		select {
-		case <-pollTick.C:
-			logger.Info("polling metrics")
-			if err := m.pollMetrics(); err != nil {
-				return err
+	var wg sync.WaitGroup
+
+	var pollers []Poller
+	runtimePoller := NewRuntimePoller(logger.With("service", "runtime poller"))
+	customPoller := NewCustomPoller(logger.With("service", "custom poller"))
+	psPoller := NewPSPoller(logger.With("service", "ps poller"))
+	pollers = append(pollers, runtimePoller, customPoller, psPoller)
+
+	pollCh := make(chan model.Metric, 1024)
+
+	wg.Add(len(pollers))
+	for _, p := range pollers {
+		go func() {
+			defer wg.Done()
+			if err := Poll(ctx, pollCh, pollDuration, p); err != nil {
+				logger.Error("poller error", slog.Any("error", err))
+				cancel()
 			}
-		case <-reportTick.C:
-			logger.Info("reporting metrics")
-			m.reportMetrics(cfg.ServerURL)
-		case <-ctx.Done():
-			logger.Info("agent shut down")
-			return nil
-		}
+		}()
 	}
+
+	aggregator := NewAggregator(logger.With("service", "aggregator"), st)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := aggregator.RunAggregator(ctx, pollCh); err != nil {
+			logger.Error("aggregator error", slog.Any("error", err))
+			cancel()
+		}
+	}()
+
+	reporter := NewReporter(
+		logger.With("service", "reporter"),
+		st,
+		cfg.ServerURL,
+		cfg.SecretKey,
+		cfg.RateLimit,
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := reporter.RunReporter(ctx, reportDuration); err != nil {
+			logger.Error("reporter error", slog.Any("error", err))
+			cancel()
+		}
+	}()
+
+	wg.Wait()
+
+	logger.Info("agent shutdown")
+	return nil
 }

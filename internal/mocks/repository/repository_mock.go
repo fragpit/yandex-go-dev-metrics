@@ -113,6 +113,20 @@ func (mr *MockRepositoryMockRecorder) Ping(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Ping", reflect.TypeOf((*MockRepository)(nil).Ping), ctx)
 }
 
+// Reset mocks base method.
+func (m *MockRepository) Reset() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Reset")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Reset indicates an expected call of Reset.
+func (mr *MockRepositoryMockRecorder) Reset() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reset", reflect.TypeOf((*MockRepository)(nil).Reset))
+}
+
 // SetOrUpdateMetric mocks base method.
 func (m *MockRepository) SetOrUpdateMetric(ctx context.Context, metric model.Metric) error {
 	m.ctrl.T.Helper()

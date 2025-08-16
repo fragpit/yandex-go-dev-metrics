@@ -102,10 +102,18 @@ func (s *MemoryStorage) Initialize(metrics []model.Metric) error {
 	return nil
 }
 
+func (s *MemoryStorage) Reset() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.Metrics = make(map[string]model.Metric)
+	return nil
+}
+
 func (s *MemoryStorage) Ping(_ context.Context) error {
 	return nil
 }
 
-func (s *MemoryStorage) Close(ctx context.Context) error {
+func (s *MemoryStorage) Close(_ context.Context) error {
 	return nil
 }

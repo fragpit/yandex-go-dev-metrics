@@ -20,15 +20,17 @@ import (
 const apiShutdownTimeout = 5 * time.Second
 
 type Router struct {
-	repo   repository.Repository
-	router http.Handler
-	logger *slog.Logger
+	repo      repository.Repository
+	router    http.Handler
+	logger    *slog.Logger
+	secretKey []byte
 }
 
-func NewRouter(l *slog.Logger, st repository.Repository) *Router {
+func NewRouter(l *slog.Logger, st repository.Repository, key []byte) *Router {
 	r := &Router{
-		logger: l,
-		repo:   st,
+		logger:    l,
+		repo:      st,
+		secretKey: key,
 	}
 	r.router = r.initRoutes()
 	return r
@@ -46,22 +48,29 @@ func (rt *Router) initRoutes() http.Handler {
 
 	r.Use(rt.slogMiddleware)
 	r.Use(compressor.Handler)
-	r.Use(rt.decompressMiddleware)
 
 	r.Get("/", rt.rootHandler)
 	r.Get("/ping", rt.pingHandler)
 
 	r.Route("/value", func(r chi.Router) {
+		r.Use(rt.decompressMiddleware)
 		r.Post("/", rt.getMetricJSON)
 		r.Get("/{type}/{name}", rt.getMetric)
 	})
 
 	r.Route("/update", func(r chi.Router) {
+		r.Use(rt.decompressMiddleware)
 		r.Post("/", rt.updateMetricJSON)
 		r.Post("/{type}/{name}/{value}", rt.updateMetric)
 	})
 
-	r.Post("/updates/", rt.updatesHandler)
+	r.Route("/updates", func(r chi.Router) {
+		if len(rt.secretKey) > 0 {
+			r.Use(rt.checksumMiddleware)
+		}
+		r.Use(rt.decompressMiddleware)
+		r.Post("/", rt.updatesHandler)
+	})
 
 	return r
 }
