@@ -9,6 +9,16 @@ env:
   LOG_LEVEL: "debug"
 
 tasks:
+  test-cover:
+    cmds:
+      - task: generate
+      - go test
+            -covermode=atomic
+            -coverpkg=./...
+            -coverprofile=coverage.out
+            $(go list ./...) &&
+        go tool cover -func=coverage.out
+
   test:
     cmds:
       - task: generate
@@ -34,10 +44,12 @@ tasks:
 
   run-server:
     cmds:
+      - task: build
       - go run {{ .ROOT_DIR }}/cmd/server/main.go {{ .CLI_ARGS }}
 
   run-agent:
     cmds:
+      - task: build
       - go run {{ .ROOT_DIR }}/cmd/agent/main.go {{ .CLI_ARGS }}
 
   run-metricstest:
