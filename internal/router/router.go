@@ -6,11 +6,13 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"runtime"
 	"time"
 
+	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
@@ -23,12 +25,19 @@ type Router struct {
 	repo      repository.Repository
 	router    http.Handler
 	logger    *slog.Logger
+	auditor   *audit.Auditor
 	secretKey []byte
 }
 
-func NewRouter(l *slog.Logger, st repository.Repository, key []byte) *Router {
+func NewRouter(
+	l *slog.Logger,
+	a *audit.Auditor,
+	st repository.Repository,
+	key []byte,
+) *Router {
 	r := &Router{
 		logger:    l,
+		auditor:   a,
 		repo:      st,
 		secretKey: key,
 	}
@@ -320,6 +329,9 @@ func (rt Router) updateMetricJSON(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	metricTypes := []string{metric.GetID()}
+	go rt.runAudit(metricTypes, req.RemoteAddr)
+
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 }
@@ -379,6 +391,9 @@ func (rt Router) updateMetric(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	metricTypes := []string{metric.GetID()}
+	go rt.runAudit(metricTypes, req.RemoteAddr)
+
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/plain")
 }
@@ -421,6 +436,7 @@ func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	metricTypesMap := make(map[string]struct{})
 	for _, m := range jsonMetrics {
 		if m.ID == "" {
 			rt.logger.Error(
@@ -442,6 +458,7 @@ func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		metrics = append(metrics, metric)
+		metricTypesMap[m.ID] = struct{}{}
 	}
 
 	if err := rt.repo.SetOrUpdateMetricBatch(req.Context(), metrics); err != nil {
@@ -457,6 +474,36 @@ func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	metricTypes := make([]string, 0, len(metricTypesMap))
+	for id := range metricTypesMap {
+		metricTypes = append(metricTypes, id)
+	}
+
+	go rt.runAudit(metricTypes, req.RemoteAddr)
+
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+}
+
+func (rt *Router) runAudit(metricTypes []string, ipPort string) {
+	ctx, cancel := context.WithTimeout(context.Background(), audit.DefaultTimeout)
+	defer cancel()
+
+	clientIP := getClientIP(ipPort)
+
+	if err := rt.auditor.LogEvent(
+		ctx,
+		metricTypes,
+		clientIP,
+	); err != nil {
+		slog.Error("failed to log audit event", slog.Any("error", err))
+	}
+}
+
+func getClientIP(ipPort string) string {
+	ip, _, err := net.SplitHostPort(ipPort)
+	if err != nil {
+		return ipPort
+	}
+	return ip
 }

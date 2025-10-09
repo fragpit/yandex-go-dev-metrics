@@ -127,7 +127,7 @@ func (s *Storage) SetOrUpdateMetric(
 		VALUES ($1, $2, $3)
 		ON CONFLICT (id) DO
 		UPDATE SET value = CAST(metrics.value AS BIGINT) +
-												CAST(EXCLUDED.value AS BIGINT)
+							CAST(EXCLUDED.value AS BIGINT)
 		`
 	} else {
 		q = `
