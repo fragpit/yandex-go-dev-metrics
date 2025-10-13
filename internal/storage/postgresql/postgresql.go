@@ -157,37 +157,31 @@ func (s *Storage) SetOrUpdateMetricBatch(
 	metrics []model.Metric,
 ) error {
 	qCounter := `
-    INSERT INTO metrics (id, type, value)
-    VALUES (@id, @type, @value)
-    ON CONFLICT (id) DO
-    UPDATE SET value = CAST(metrics.value AS BIGINT) +
-                            CAST(EXCLUDED.value AS BIGINT)
+		INSERT INTO metrics (id, type, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO
+		UPDATE SET value = CAST(metrics.value AS BIGINT) +
+							CAST(EXCLUDED.value AS BIGINT)
     `
 
 	qGauge := `
-    INSERT INTO metrics (id, type, value)
-    VALUES (@id, @type, @value)
-    ON CONFLICT (id) DO
-    UPDATE SET value = EXCLUDED.value
+		INSERT INTO metrics (id, type, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE
+		SET value = EXCLUDED.value
     `
 
 	b := &pgx.Batch{}
 
 	for _, m := range metrics {
 		var q string
-		args := pgx.NamedArgs{
-			"id":    m.GetID(),
-			"type":  m.GetType(),
-			"value": m.GetValue(),
-		}
-
 		if m.GetType() == "counter" {
 			q = qCounter
 		} else {
 			q = qGauge
 		}
 
-		b.Queue(q, args)
+		b.Queue(q, m.GetID(), m.GetType(), m.GetValue())
 	}
 
 	br := s.DB.SendBatch(ctx, b)

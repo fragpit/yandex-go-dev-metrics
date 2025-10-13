@@ -112,7 +112,7 @@ func (s *Cacher) saveMetrics(ctx context.Context) error {
 		return nil
 	}
 
-	var metricsList []model.Metrics
+	metricsList := make([]model.Metrics, 0, len(metrics))
 	for _, metric := range metrics {
 		metricsList = append(metricsList, *metric.ToJSON())
 	}

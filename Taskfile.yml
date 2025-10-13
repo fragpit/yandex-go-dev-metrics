@@ -5,8 +5,8 @@ version: '3'
 vars:
   BUILD_DIR: "{{ .ROOT_DIR }}/bin"
 
-env:
-  LOG_LEVEL: "debug"
+# env:
+#   LOG_LEVEL: "debug"
 
 tasks:
   test-cover:
@@ -37,20 +37,31 @@ tasks:
       - task: test
       - task: lint
 
-  build:
+  build-dev:
     cmds:
       - mkdir -p {{ .BUILD_DIR }}
-      - go build -o {{ .BUILD_DIR }} {{ .ROOT_DIR }}/cmd/...
+      - go build -tags dev -o {{ .BUILD_DIR }} {{ .ROOT_DIR }}/cmd/...
 
   run-server:
     cmds:
-      - task: build
-      - go run {{ .ROOT_DIR }}/cmd/server/main.go {{ .CLI_ARGS }}
+      - go run -tags=dev {{ .ROOT_DIR }}/cmd/server/*.go {{ .CLI_ARGS }}
+
+  run-server-pg:
+    vars:
+      DATABASE_URI: "postgresql://localhost:5432/yandexdevmetrics?sslmode=disable"
+    cmds:
+      - task: build-dev
+      - defer: psql -d postgres -c "DROP DATABASE IF EXISTS yandexdevmetrics"
+      - psql -d postgres -c "DROP DATABASE IF EXISTS yandexdevmetrics"
+      - psql -d postgres -c "CREATE DATABASE yandexdevmetrics"
+      - >
+        go run \
+          {{ .ROOT_DIR }}/cmd/server/*.go \
+          -d "{{ .DATABASE_URI }}"
 
   run-agent:
     cmds:
-      - task: build
-      - go run {{ .ROOT_DIR }}/cmd/agent/main.go {{ .CLI_ARGS }}
+      - go run -tags=dev {{ .ROOT_DIR }}/cmd/agent/*.go {{ .CLI_ARGS }}
 
   run-metricstest:
     cmds:
@@ -63,7 +74,7 @@ tasks:
       ADDRESS: "localhost:${SERVER_PORT}"
       TEMP_FILE: /tmp/test.json
     cmds:
-      - task: build
+      - task: build-dev
       - metricstest -test.v -test.run=^TestIteration{{ .TEST_SET_NUM }}$
           -agent-binary-path={{ .BUILD_DIR }}/agent
           -binary-path={{ .BUILD_DIR }}/server
@@ -79,7 +90,7 @@ tasks:
       ADDRESS: "localhost:${SERVER_PORT}"
       DATABASE_DSN: postgresql://yx:yx@localhost:5432/yandex-metrics?sslmode=disable
     cmds:
-      - task: build
+      - task: build-dev
       - metricstest -test.v -test.run=^TestIteration{{ .TEST_SET_NUM }}$
           -agent-binary-path={{ .BUILD_DIR }}/agent
           -binary-path={{ .BUILD_DIR }}/server

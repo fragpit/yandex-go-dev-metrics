@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"html/template"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -187,22 +186,8 @@ func (rt Router) pingHandler(w http.ResponseWriter, req *http.Request) {
 func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		rt.logger.Error(
-			"error reading request body",
-			slog.Any("error", err),
-		)
-		http.Error(
-			w,
-			"error reading request body",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
 	var metric *model.Metrics
-	if err := json.Unmarshal(body, &metric); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&metric); err != nil {
 		rt.logger.Error(
 			"error parsing request body",
 			slog.Any("error", err),
@@ -271,23 +256,13 @@ func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 }
 
 func (rt Router) updateMetricJSON(w http.ResponseWriter, req *http.Request) {
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		rt.logger.Error(
-			"error reading request body",
-			slog.Any("error", err),
-		)
-		http.Error(w, "error reading request body", http.StatusBadRequest)
-		return
-	}
-
 	var jsonMetric *model.Metrics
-	if err := json.Unmarshal(body, &jsonMetric); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&jsonMetric); err != nil {
 		rt.logger.Error(
-			"error parsing request body",
+			"error decoding request body",
 			slog.Any("error", err),
 		)
-		http.Error(w, "error setting metric", http.StatusBadRequest)
+		http.Error(w, "error decoding request body", http.StatusBadRequest)
 		return
 	}
 
@@ -415,27 +390,17 @@ func (rt Router) getMetric(w http.ResponseWriter, req *http.Request) {
 }
 
 func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		rt.logger.Error(
-			"error reading request body",
-			slog.Any("error", err),
-		)
-		http.Error(w, "error reading request body", http.StatusBadRequest)
-		return
-	}
-
 	var jsonMetrics []*model.Metrics
-	var metrics []model.Metric
-	if err := json.Unmarshal(body, &jsonMetrics); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&jsonMetrics); err != nil {
 		rt.logger.Error(
-			"error parsing request body",
+			"error decoding request body",
 			slog.Any("error", err),
 		)
-		http.Error(w, "error parsing request body", http.StatusBadRequest)
+		http.Error(w, "error decoding request body", http.StatusBadRequest)
 		return
 	}
 
+	var metrics []model.Metric
 	metricTypesMap := make(map[string]struct{})
 	for _, m := range jsonMetrics {
 		if m.ID == "" {
