@@ -202,3 +202,7 @@ Dropped 8 nodes (cum <= 17.96kB)
          0     0% 42.77%  -512.56kB 14.27%  runtime.stoplockedm
          0     0% 42.77%     1539kB 42.86%  runtime.wakep
 ```
+
+## Test coverage
+
+![Current test coverage](contrib/coverage.svg)

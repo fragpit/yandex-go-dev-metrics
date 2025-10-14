@@ -38,11 +38,33 @@ func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
 
 				if r.Header.Get("Content-Encoding") == "gzip" &&
 					len(bodyBytes) > 0 {
-					gz, err := gzip.NewReader(
-						bytes.NewReader(bodyBytes))
-					if err == nil {
-						decompressedBody, _ = io.ReadAll(gz)
-						gz.Close()
+					gz, err := gzip.NewReader(bytes.NewReader(bodyBytes))
+					if err != nil {
+						rt.logger.Error(
+							"failed to create gzip reader",
+							slog.Any("error", err),
+						)
+						http.Error(
+							w,
+							"failed to create reader",
+							http.StatusBadRequest,
+						)
+						return
+					}
+					defer gz.Close()
+
+					decompressedBody, err = io.ReadAll(gz)
+					if err != nil {
+						rt.logger.Error(
+							"error reading decompressed request body",
+							slog.Any("error", err),
+						)
+						http.Error(
+							w,
+							http.StatusText(http.StatusInternalServerError),
+							http.StatusInternalServerError,
+						)
+						return
 					}
 				}
 			}

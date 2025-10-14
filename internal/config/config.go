@@ -128,6 +128,17 @@ func NewAgentConfig() *AgentConfig {
 	}
 }
 
+// Debug logs the current agent configuration.
+func (c *AgentConfig) Debug() {
+	slog.Info(
+		"agent config",
+		slog.String("log_level", c.LogLevel),
+		slog.String("server_url", c.ServerURL),
+		slog.Int("poll_interval", c.PollInterval),
+		slog.Int("report_interval", c.ReportInterval),
+	)
+}
+
 type ServerConfig struct {
 	LogLevel      string
 	Address       string
@@ -279,16 +290,7 @@ func NewServerConfig() *ServerConfig {
 	}
 }
 
-func (c *AgentConfig) Debug() {
-	slog.Info(
-		"agent config",
-		slog.String("log_level", c.LogLevel),
-		slog.String("server_url", c.ServerURL),
-		slog.Int("poll_interval", c.PollInterval),
-		slog.Int("report_interval", c.ReportInterval),
-	)
-}
-
+// Debug logs the current server configuration.
 func (c *ServerConfig) Debug() {
 	slog.Info(
 		"server config",

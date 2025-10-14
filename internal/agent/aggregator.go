@@ -9,11 +9,13 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 )
 
+// Aggregator is responsible for aggregating incoming metrics and storing them.
 type Aggregator struct {
 	l    *slog.Logger
 	repo repository.Repository
 }
 
+// NewAggregator creates a new Aggregator instance.
 func NewAggregator(logger *slog.Logger, st repository.Repository) *Aggregator {
 	return &Aggregator{
 		l:    logger,
@@ -21,6 +23,8 @@ func NewAggregator(logger *slog.Logger, st repository.Repository) *Aggregator {
 	}
 }
 
+// RunAggregator starts the aggregation process, reading metrics from the
+// input channel
 func (a *Aggregator) RunAggregator(
 	ctx context.Context,
 	in <-chan model.Metric,

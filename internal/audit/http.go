@@ -14,6 +14,8 @@ type HTTPObserver struct {
 	client *http.Client
 }
 
+// NewHTTPObserver creates a new HTTPObserver with the given URL.
+// The URL is the endpoint where audit events will be sent.
 func NewHTTPObserver(url string) *HTTPObserver {
 	return &HTTPObserver{
 		URL:    url,

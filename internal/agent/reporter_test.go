@@ -54,3 +54,19 @@ func TestReporter_reportMetrics(t *testing.T) {
 		})
 	}
 }
+
+func TestNewReporter(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	reporter := NewReporter(
+		logger,
+		nil,
+		"http://localhost:8080",
+		[]byte("secret"),
+		1,
+	)
+
+	assert.NotNil(t, reporter)
+	assert.Equal(t, "http://localhost:8080", reporter.serverURL)
+	assert.Equal(t, []byte("secret"), reporter.secretKey)
+	assert.Equal(t, 1, reporter.rateLimit)
+}

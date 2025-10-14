@@ -1,6 +1,8 @@
 package config
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestValidateURL(t *testing.T) {
 	tests := []struct {
@@ -29,4 +31,30 @@ func TestValidateURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAgentConfig_Debug(t *testing.T) {
+	cfg := &AgentConfig{
+		LogLevel:       "debug",
+		ServerURL:      "http://localhost:8080",
+		PollInterval:   2,
+		ReportInterval: 10,
+		SecretKey:      []byte("test"),
+		RateLimit:      1,
+	}
+
+	cfg.Debug()
+}
+
+func TestServerConfig_Debug(t *testing.T) {
+	cfg := &ServerConfig{
+		LogLevel:      "debug",
+		Address:       "localhost:8080",
+		FileStorePath: "/tmp/metrics.json",
+		Restore:       true,
+		DatabaseDSN:   "",
+		SecretKey:     []byte("test"),
+	}
+
+	cfg.Debug()
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 )
 
+// MetricType represents the type of a metric, either "counter" or "gauge".
 type MetricType string
 
 const (
@@ -18,6 +19,7 @@ var (
 	ErrMetricTypeNotSet  = errors.New("metric type is not set")
 )
 
+// Metrics is a struct used for JSON serialization/deserialization of metrics.
 type Metrics struct {
 	ID    string   `json:"id"`
 	MType string   `json:"type"`
@@ -25,6 +27,7 @@ type Metrics struct {
 	Value *float64 `json:"value,omitempty"`
 }
 
+// Metric is an interface that defines methods for working with metrics.
 type Metric interface {
 	GetID() string
 	GetType() MetricType
@@ -33,23 +36,28 @@ type Metric interface {
 	ToJSON() *Metrics
 }
 
+// CounterMetric represents a counter metric.
 type CounterMetric struct {
 	ID    string
 	Value int64
 }
 
+// GetID returns the ID of the counter metric.
 func (c *CounterMetric) GetID() string {
 	return c.ID
 }
 
+// GetType returns the type of the counter metric.
 func (c *CounterMetric) GetType() MetricType {
 	return CounterType
 }
 
+// GetValue returns the value of the counter metric as a string.
 func (c *CounterMetric) GetValue() string {
 	return strconv.FormatInt(c.Value, 10)
 }
 
+// SetValue sets the value of the counter metric from a string.
 func (c *CounterMetric) SetValue(value string) error {
 	parsedValue, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
@@ -60,6 +68,7 @@ func (c *CounterMetric) SetValue(value string) error {
 	return nil
 }
 
+// ToJSON converts the counter metric to its JSON representation.
 func (c *CounterMetric) ToJSON() *Metrics {
 	return &Metrics{
 		ID:    c.ID,
@@ -68,23 +77,28 @@ func (c *CounterMetric) ToJSON() *Metrics {
 	}
 }
 
+// GaugeMetric represents a gauge metric.
 type GaugeMetric struct {
 	ID    string
 	Value float64
 }
 
+// GetID returns the ID of the gauge metric.
 func (g *GaugeMetric) GetID() string {
 	return g.ID
 }
 
+// GetType returns the type of the gauge metric.
 func (g *GaugeMetric) GetType() MetricType {
 	return GaugeType
 }
 
+// GetValue returns the value of the gauge metric as a string.
 func (g *GaugeMetric) GetValue() string {
 	return strconv.FormatFloat(g.Value, 'f', -1, 64)
 }
 
+// SetValue sets the value of the gauge metric from a string.
 func (g *GaugeMetric) SetValue(value string) error {
 	parsedValue, err := strconv.ParseFloat(value, 64)
 	if err != nil {
@@ -95,6 +109,7 @@ func (g *GaugeMetric) SetValue(value string) error {
 	return nil
 }
 
+// ToJSON converts the gauge metric to its JSON representation.
 func (g *GaugeMetric) ToJSON() *Metrics {
 	return &Metrics{
 		ID:    g.ID,
@@ -103,6 +118,7 @@ func (g *GaugeMetric) ToJSON() *Metrics {
 	}
 }
 
+// NewMetric creates a new Metric instance based on the provided type.
 func NewMetric(id string, metricType MetricType) (Metric, error) {
 	switch MetricType(metricType) {
 	case CounterType:
@@ -114,6 +130,7 @@ func NewMetric(id string, metricType MetricType) (Metric, error) {
 	}
 }
 
+// MetricFromJSON converts a Metrics struct to a Metric interface.
 func MetricFromJSON(m *Metrics) (Metric, error) {
 	switch MetricType(m.MType) {
 	case CounterType:
@@ -133,6 +150,7 @@ func MetricFromJSON(m *Metrics) (Metric, error) {
 	}
 }
 
+// ValidateType checks if the provided metric type is valid.
 func ValidateType(tp string) bool {
 	convType := MetricType(tp)
 	return convType == CounterType || convType == GaugeType

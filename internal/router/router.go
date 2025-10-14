@@ -18,8 +18,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// apiShutdownTimeout defines the timeout for graceful shutdown of the API server.
 const apiShutdownTimeout = 5 * time.Second
 
+// Router handles HTTP requests and routes them to appropriate handlers.
 type Router struct {
 	repo      repository.Repository
 	router    http.Handler
@@ -28,6 +30,7 @@ type Router struct {
 	secretKey []byte
 }
 
+// NewRouter creates a new Router instance.
 func NewRouter(
 	l *slog.Logger,
 	a *audit.Auditor,
@@ -44,6 +47,7 @@ func NewRouter(
 	return r
 }
 
+// initRoutes initializes the HTTP routes and middleware.
 func (rt *Router) initRoutes() http.Handler {
 	r := chi.NewMux()
 
@@ -83,6 +87,7 @@ func (rt *Router) initRoutes() http.Handler {
 	return r
 }
 
+// Run starts the HTTP server and listens for incoming requests.
 func (rt *Router) Run(ctx context.Context, addr string) error {
 	srv := &http.Server{
 		Addr:         addr,
@@ -128,6 +133,7 @@ func (rt *Router) Run(ctx context.Context, addr string) error {
 	return nil
 }
 
+// rootHandler serves the root HTML page displaying all metrics.
 func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 	metrics, err := rt.repo.GetMetrics(req.Context())
 	if err != nil {
@@ -166,6 +172,7 @@ func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// pingHandler checks the health of the storage by performing a ping operation.
 func (rt Router) pingHandler(w http.ResponseWriter, req *http.Request) {
 	if err := rt.repo.Ping(req.Context()); err != nil {
 		rt.logger.Error(
@@ -183,6 +190,7 @@ func (rt Router) pingHandler(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// getMetricJSON handles retrieval of a single metric by JSON payload.
 func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -329,6 +337,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// updateMetric handles updating or creating a single metric by type, name,
+// and value.
 func (rt Router) updateMetric(w http.ResponseWriter, req *http.Request) {
 	metricType := chi.URLParam(req, "type")
 	metricName := chi.URLParam(req, "name")
@@ -373,6 +383,7 @@ func (rt Router) updateMetric(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 }
 
+// getMetric handles retrieval of a single metric by type and name.
 func (rt Router) getMetric(w http.ResponseWriter, req *http.Request) {
 	metricName := chi.URLParam(req, "name")
 
@@ -389,6 +400,7 @@ func (rt Router) getMetric(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte(metricValue))
 }
 
+// updatesHandler handles batch updates of metrics via JSON payload.
 func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
 	var jsonMetrics []*model.Metrics
 	if err := json.NewDecoder(req.Body).Decode(&jsonMetrics); err != nil {

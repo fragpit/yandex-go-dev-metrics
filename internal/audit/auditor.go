@@ -17,6 +17,7 @@ type Event struct {
 	IPAddress string   `json:"ip_address"`
 }
 
+// Observer is an interface for components that want to receive audit events.
 type Observer interface {
 	Notify(ctx context.Context, event Event) error
 }
@@ -29,10 +30,12 @@ func NewAuditor() *Auditor {
 	return &Auditor{}
 }
 
+// Add registers a new observer to receive audit events.
 func (a *Auditor) Add(observer Observer) {
 	a.observers = append(a.observers, observer)
 }
 
+// LogEvent notifies all observers about the event.
 func (a *Auditor) LogEvent(
 	ctx context.Context,
 	metrics []string,

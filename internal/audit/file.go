@@ -10,14 +10,16 @@ import (
 )
 
 type FileObserver struct {
-	mu       sync.Mutex
+	mu       *sync.Mutex
 	filePath string
 }
 
+// NewFileObserver creates a new FileObserver which writes audit events to the
+// specified file.
 func NewFileObserver(filePath string) *FileObserver {
 	return &FileObserver{
 		filePath: filePath,
-		mu:       sync.Mutex{},
+		mu:       &sync.Mutex{},
 	}
 }
 

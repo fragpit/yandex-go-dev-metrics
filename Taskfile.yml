@@ -16,8 +16,9 @@ tasks:
             -covermode=atomic
             -coverpkg=./...
             -coverprofile=coverage.out
-            $(go list ./...) &&
-        go tool cover -func=coverage.out
+            ./...
+      - go tool cover -func=coverage.out
+      - go-cover-treemap -coverprofile coverage.out -percent > "{{ .ROOT_DIR }}/contrib/coverage.svg"
 
   test:
     cmds:

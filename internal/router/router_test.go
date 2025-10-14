@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -837,4 +838,29 @@ func int64Ptr(v int64) *int64 {
 
 func float64Ptr(v float64) *float64 {
 	return &v
+}
+
+func TestRouter_rootHandler(t *testing.T) {
+	logger := slog.New(
+		slog.NewTextHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelError},
+		),
+	)
+	repo := memstorage.NewMemoryStorage()
+	auditor := audit.NewAuditor()
+	router := NewRouter(logger, auditor, repo, nil)
+
+	m1, _ := model.NewMetric("test_gauge", model.GaugeType)
+	_ = m1.SetValue("42.5")
+	_ = repo.SetOrUpdateMetric(context.Background(), m1)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+
+	router.router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+	assert.Contains(t, w.Body.String(), "test_gauge")
 }
