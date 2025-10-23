@@ -48,7 +48,7 @@ func NewStorage(ctx context.Context, dbDSN string) (*Storage, error) {
 		return errors.As(err, &connErr)
 	}
 
-	retrier := retry.New(isRetryable)
+	retrier := retry.NewRetrier(isRetryable)
 
 	return &Storage{
 		DB:      db,
@@ -56,6 +56,7 @@ func NewStorage(ctx context.Context, dbDSN string) (*Storage, error) {
 	}, nil
 }
 
+// GetMetrics retrieves all metrics from the database.
 func (s *Storage) GetMetrics(
 	ctx context.Context,
 ) (map[string]model.Metric, error) {
@@ -91,6 +92,7 @@ func (s *Storage) GetMetrics(
 	return metrics, nil
 }
 
+// GetMetric retrieves a single metric by its name from the database.
 func (s *Storage) GetMetric(
 	ctx context.Context,
 	name string,
@@ -115,6 +117,7 @@ func (s *Storage) GetMetric(
 	return metric, nil
 }
 
+// SetOrUpdateMetric inserts a new metric or updates an existing one in the database.
 func (s *Storage) SetOrUpdateMetric(
 	ctx context.Context,
 	metric model.Metric,
@@ -127,7 +130,7 @@ func (s *Storage) SetOrUpdateMetric(
 		VALUES ($1, $2, $3)
 		ON CONFLICT (id) DO
 		UPDATE SET value = CAST(metrics.value AS BIGINT) +
-												CAST(EXCLUDED.value AS BIGINT)
+							CAST(EXCLUDED.value AS BIGINT)
 		`
 	} else {
 		q = `
@@ -152,42 +155,37 @@ func (s *Storage) SetOrUpdateMetric(
 	return nil
 }
 
+// SetOrUpdateMetricBatch inserts or updates a batch of metrics in the database.
 func (s *Storage) SetOrUpdateMetricBatch(
 	ctx context.Context,
 	metrics []model.Metric,
 ) error {
 	qCounter := `
-    INSERT INTO metrics (id, type, value)
-    VALUES (@id, @type, @value)
-    ON CONFLICT (id) DO
-    UPDATE SET value = CAST(metrics.value AS BIGINT) +
-                            CAST(EXCLUDED.value AS BIGINT)
+		INSERT INTO metrics (id, type, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO
+		UPDATE SET value = CAST(metrics.value AS BIGINT) +
+							CAST(EXCLUDED.value AS BIGINT)
     `
 
 	qGauge := `
-    INSERT INTO metrics (id, type, value)
-    VALUES (@id, @type, @value)
-    ON CONFLICT (id) DO
-    UPDATE SET value = EXCLUDED.value
+		INSERT INTO metrics (id, type, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (id) DO UPDATE
+		SET value = EXCLUDED.value
     `
 
 	b := &pgx.Batch{}
 
 	for _, m := range metrics {
 		var q string
-		args := pgx.NamedArgs{
-			"id":    m.GetID(),
-			"type":  m.GetType(),
-			"value": m.GetValue(),
-		}
-
 		if m.GetType() == "counter" {
 			q = qCounter
 		} else {
 			q = qGauge
 		}
 
-		b.Queue(q, args)
+		b.Queue(q, m.GetID(), m.GetType(), m.GetValue())
 	}
 
 	br := s.DB.SendBatch(ctx, b)
@@ -215,6 +213,7 @@ func (s *Storage) Reset() error {
 	return nil
 }
 
+// Ping checks the database connection.
 func (s *Storage) Ping(ctx context.Context) error {
 	if s.DB == nil {
 		return fmt.Errorf("database connection is not initialized")

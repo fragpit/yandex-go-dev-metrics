@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/cacher"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/config"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
@@ -40,6 +41,7 @@ func Run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: logLevel,
 	}))
+	slog.SetDefault(logger)
 
 	var err error
 	var st repository.Repository
@@ -49,6 +51,18 @@ func Run() error {
 		}
 	} else {
 		st = memstorage.NewMemoryStorage()
+	}
+
+	auditor := audit.NewAuditor()
+
+	if cfg.AuditFile != "" {
+		fileAuditor := audit.NewFileObserver(cfg.AuditFile)
+		auditor.Add(fileAuditor)
+	}
+
+	if cfg.AuditURL != "" {
+		httpAuditor := audit.NewHTTPObserver(cfg.AuditURL)
+		auditor.Add(httpAuditor)
 	}
 
 	logger.Info("starting server", slog.String("address", cfg.Address))
@@ -104,6 +118,7 @@ func Run() error {
 
 	router := router.NewRouter(
 		logger.With("service", "router"),
+		auditor,
 		st,
 		cfg.SecretKey,
 	)

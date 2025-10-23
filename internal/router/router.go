@@ -4,31 +4,42 @@ import (
 	"context"
 	"encoding/json"
 	"html/template"
-	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"runtime"
 	"time"
 
+	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// apiShutdownTimeout defines the timeout for graceful shutdown of the API server.
 const apiShutdownTimeout = 5 * time.Second
 
+// Router handles HTTP requests and routes them to appropriate handlers.
 type Router struct {
 	repo      repository.Repository
 	router    http.Handler
 	logger    *slog.Logger
+	auditor   *audit.Auditor
 	secretKey []byte
 }
 
-func NewRouter(l *slog.Logger, st repository.Repository, key []byte) *Router {
+// NewRouter creates a new Router instance.
+func NewRouter(
+	l *slog.Logger,
+	a *audit.Auditor,
+	st repository.Repository,
+	key []byte,
+) *Router {
 	r := &Router{
 		logger:    l,
+		auditor:   a,
 		repo:      st,
 		secretKey: key,
 	}
@@ -36,6 +47,7 @@ func NewRouter(l *slog.Logger, st repository.Repository, key []byte) *Router {
 	return r
 }
 
+// initRoutes initializes the HTTP routes and middleware.
 func (rt *Router) initRoutes() http.Handler {
 	r := chi.NewMux()
 
@@ -75,6 +87,7 @@ func (rt *Router) initRoutes() http.Handler {
 	return r
 }
 
+// Run starts the HTTP server and listens for incoming requests.
 func (rt *Router) Run(ctx context.Context, addr string) error {
 	srv := &http.Server{
 		Addr:         addr,
@@ -120,6 +133,7 @@ func (rt *Router) Run(ctx context.Context, addr string) error {
 	return nil
 }
 
+// rootHandler serves the root HTML page displaying all metrics.
 func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 	metrics, err := rt.repo.GetMetrics(req.Context())
 	if err != nil {
@@ -158,6 +172,7 @@ func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// pingHandler checks the health of the storage by performing a ping operation.
 func (rt Router) pingHandler(w http.ResponseWriter, req *http.Request) {
 	if err := rt.repo.Ping(req.Context()); err != nil {
 		rt.logger.Error(
@@ -175,25 +190,12 @@ func (rt Router) pingHandler(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// getMetricJSON handles retrieval of a single metric by JSON payload.
 func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		rt.logger.Error(
-			"error reading request body",
-			slog.Any("error", err),
-		)
-		http.Error(
-			w,
-			"error reading request body",
-			http.StatusBadRequest,
-		)
-		return
-	}
-
 	var metric *model.Metrics
-	if err := json.Unmarshal(body, &metric); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&metric); err != nil {
 		rt.logger.Error(
 			"error parsing request body",
 			slog.Any("error", err),
@@ -262,23 +264,13 @@ func (rt Router) getMetricJSON(w http.ResponseWriter, req *http.Request) {
 }
 
 func (rt Router) updateMetricJSON(w http.ResponseWriter, req *http.Request) {
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		rt.logger.Error(
-			"error reading request body",
-			slog.Any("error", err),
-		)
-		http.Error(w, "error reading request body", http.StatusBadRequest)
-		return
-	}
-
 	var jsonMetric *model.Metrics
-	if err := json.Unmarshal(body, &jsonMetric); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&jsonMetric); err != nil {
 		rt.logger.Error(
-			"error parsing request body",
+			"error decoding request body",
 			slog.Any("error", err),
 		)
-		http.Error(w, "error setting metric", http.StatusBadRequest)
+		http.Error(w, "error decoding request body", http.StatusBadRequest)
 		return
 	}
 
@@ -320,6 +312,9 @@ func (rt Router) updateMetricJSON(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	metricTypes := []string{metric.GetID()}
+	go rt.runAudit(metricTypes, req.RemoteAddr)
+
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 }
@@ -342,6 +337,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
+// updateMetric handles updating or creating a single metric by type, name,
+// and value.
 func (rt Router) updateMetric(w http.ResponseWriter, req *http.Request) {
 	metricType := chi.URLParam(req, "type")
 	metricName := chi.URLParam(req, "name")
@@ -379,10 +376,14 @@ func (rt Router) updateMetric(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	metricTypes := []string{metric.GetID()}
+	go rt.runAudit(metricTypes, req.RemoteAddr)
+
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/plain")
 }
 
+// getMetric handles retrieval of a single metric by type and name.
 func (rt Router) getMetric(w http.ResponseWriter, req *http.Request) {
 	metricName := chi.URLParam(req, "name")
 
@@ -399,28 +400,20 @@ func (rt Router) getMetric(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte(metricValue))
 }
 
+// updatesHandler handles batch updates of metrics via JSON payload.
 func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		rt.logger.Error(
-			"error reading request body",
-			slog.Any("error", err),
-		)
-		http.Error(w, "error reading request body", http.StatusBadRequest)
-		return
-	}
-
 	var jsonMetrics []*model.Metrics
-	var metrics []model.Metric
-	if err := json.Unmarshal(body, &jsonMetrics); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&jsonMetrics); err != nil {
 		rt.logger.Error(
-			"error parsing request body",
+			"error decoding request body",
 			slog.Any("error", err),
 		)
-		http.Error(w, "error parsing request body", http.StatusBadRequest)
+		http.Error(w, "error decoding request body", http.StatusBadRequest)
 		return
 	}
 
+	var metrics []model.Metric
+	metricTypesMap := make(map[string]struct{})
 	for _, m := range jsonMetrics {
 		if m.ID == "" {
 			rt.logger.Error(
@@ -442,6 +435,7 @@ func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		metrics = append(metrics, metric)
+		metricTypesMap[m.ID] = struct{}{}
 	}
 
 	if err := rt.repo.SetOrUpdateMetricBatch(req.Context(), metrics); err != nil {
@@ -457,6 +451,36 @@ func (rt Router) updatesHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	metricTypes := make([]string, 0, len(metricTypesMap))
+	for id := range metricTypesMap {
+		metricTypes = append(metricTypes, id)
+	}
+
+	go rt.runAudit(metricTypes, req.RemoteAddr)
+
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+}
+
+func (rt *Router) runAudit(metricTypes []string, ipPort string) {
+	ctx, cancel := context.WithTimeout(context.Background(), audit.DefaultTimeout)
+	defer cancel()
+
+	clientIP := getClientIP(ipPort)
+
+	if err := rt.auditor.LogEvent(
+		ctx,
+		metricTypes,
+		clientIP,
+	); err != nil {
+		slog.Error("failed to log audit event", slog.Any("error", err))
+	}
+}
+
+func getClientIP(ipPort string) string {
+	ip, _, err := net.SplitHostPort(ipPort)
+	if err != nil {
+		return ipPort
+	}
+	return ip
 }

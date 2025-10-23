@@ -1,0 +1,59 @@
+Using hey at: /opt/homebrew/bin/hey
+Server address: http://localhost:8080
+
+  === Running Scenario 2: Fill database with random metrics ===
+  === then batch upload of 5 counters and 5 gauges ===
+
+Filling database with random metrics...
+Progress: 0/1000
+Progress: 100/1000
+Progress: 200/1000
+Progress: 300/1000
+Progress: 400/1000
+Progress: 500/1000
+Progress: 600/1000
+Progress: 700/1000
+Progress: 800/1000
+Progress: 900/1000
+Starting load test...
+
+Summary:
+  Total:	30.0018 secs
+  Slowest:	0.0948 secs
+  Fastest:	0.0002 secs
+  Average:	0.0017 secs
+  Requests/sec:	5766.6203
+
+
+Response time histogram:
+  0.000 [1]	|
+  0.010 [171203]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.019 [1732]	|
+  0.029 [64]	|
+  0.038 [3]	|
+  0.047 [4]	|
+  0.057 [0]	|
+  0.066 [0]	|
+  0.076 [1]	|
+  0.085 [0]	|
+  0.095 [1]	|
+
+
+Latency distribution:
+  10% in 0.0003 secs
+  25% in 0.0003 secs
+  50% in 0.0009 secs
+  75% in 0.0024 secs
+  90% in 0.0044 secs
+  95% in 0.0060 secs
+  99% in 0.0097 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0000 secs, 0.0002 secs, 0.0948 secs
+  DNS-lookup:	0.0000 secs, 0.0000 secs, 0.0019 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0009 secs
+  resp wait:	0.0017 secs, 0.0002 secs, 0.0947 secs
+  resp read:	0.0000 secs, 0.0000 secs, 0.0002 secs
+
+Status code distribution:
+  [200]	173009 responses

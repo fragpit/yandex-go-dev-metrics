@@ -12,6 +12,7 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 )
 
+// Cacher periodically saves metrics to a file and can restore them on startup
 type Cacher struct {
 	logger  *slog.Logger
 	storage repository.Repository
@@ -36,6 +37,7 @@ func NewCacher(
 	}
 }
 
+// Run starts the periodic saving of metrics to a file
 func (s *Cacher) Run(ctx context.Context) error {
 	s.logger.Info("cacher started")
 	defer s.logger.Info("cacher stopped")
@@ -47,6 +49,7 @@ func (s *Cacher) Run(ctx context.Context) error {
 	return nil
 }
 
+// Restore loads metrics from the backup file into the storage
 func (s *Cacher) Restore() ([]model.Metric, error) {
 	file, err := os.Open(s.filename)
 	if os.IsNotExist(err) {
@@ -112,7 +115,7 @@ func (s *Cacher) saveMetrics(ctx context.Context) error {
 		return nil
 	}
 
-	var metricsList []model.Metrics
+	metricsList := make([]model.Metrics, 0, len(metrics))
 	for _, metric := range metrics {
 		metricsList = append(metricsList, *metric.ToJSON())
 	}
@@ -169,13 +172,13 @@ func runPeriodically(
 		select {
 		case <-ticker.C:
 			if ctx.Err() != nil {
-				continue
+				return ctx.Err()
 			}
 			if err := f(ctx); err != nil {
 				return err
 			}
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 	}
 }

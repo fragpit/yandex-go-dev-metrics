@@ -54,7 +54,7 @@ func TestRetrier_PostgreSQL_Integration_PingSuccess(t *testing.T) {
 	defer db.Close()
 
 	isRetryable := createPostgreSQLIsRetryable()
-	retrier := New(isRetryable)
+	retrier := NewRetrier(isRetryable)
 
 	op := func(ctx context.Context) error {
 		return db.Ping(ctx)
@@ -84,7 +84,7 @@ func TestRetrier_PostgreSQL_Integration_PingWithInvalidDSN(t *testing.T) {
 	defer db.Close()
 
 	isRetryable := createPostgreSQLIsRetryable()
-	retrier := New(isRetryable, WithBackoff([]time.Duration{
+	retrier := NewRetrier(isRetryable, WithBackoff([]time.Duration{
 		1 * time.Millisecond,
 		2 * time.Millisecond,
 	}))
@@ -127,7 +127,7 @@ func TestRetrier_PostgreSQL_Integration_PingContextTimeout(t *testing.T) {
 	defer cancel()
 
 	isRetryable := createPostgreSQLIsRetryable()
-	retrier := New(isRetryable)
+	retrier := NewRetrier(isRetryable)
 
 	op := func(ctx context.Context) error {
 		return db.Ping(ctx)
@@ -150,7 +150,7 @@ func TestRetrier_PostgreSQL_Integration_MultipleConnections(t *testing.T) {
 	ctx := context.Background()
 
 	isRetryable := createPostgreSQLIsRetryable()
-	retrier := New(isRetryable)
+	retrier := NewRetrier(isRetryable)
 
 	pgContainer, err := runPostgresContainer()
 	require.NoError(t, err)
@@ -219,7 +219,7 @@ func TestRetrier_PostgreSQL_Integration_DatabaseReconnect(t *testing.T) {
 	defer db.Close()
 
 	isRetryable := createPostgreSQLIsRetryable()
-	retrier := New(isRetryable, WithBackoff([]time.Duration{
+	retrier := NewRetrier(isRetryable, WithBackoff([]time.Duration{
 		5 * time.Millisecond,
 		10 * time.Millisecond,
 	}))
@@ -259,7 +259,7 @@ func BenchmarkRetrier_PostgreSQL_Integration_Ping(b *testing.B) {
 	defer db.Close()
 
 	isRetryable := createPostgreSQLIsRetryable()
-	retrier := New(isRetryable)
+	retrier := NewRetrier(isRetryable)
 
 	op := func(ctx context.Context) error {
 		return db.Ping(ctx)

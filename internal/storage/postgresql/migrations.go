@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/tern/v2/migrate"
 )
 
+// runMigrations applies database migrations using the tern library.
 func runMigrations(ctx context.Context, conn *pgxpool.Pool) error {
 	poolConn, err := conn.Acquire(ctx)
 	if err != nil {

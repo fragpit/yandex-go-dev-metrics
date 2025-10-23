@@ -67,7 +67,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			retrier := New(tt.isRetryable, tt.opts...)
+			retrier := NewRetrier(tt.isRetryable, tt.opts...)
 
 			assert.NotNil(t, retrier)
 			assert.Equal(t, tt.wantBackoff, retrier.backoff)
@@ -77,7 +77,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestRetrier_Do_Success(t *testing.T) {
-	retrier := New(alwaysRetryable)
+	retrier := NewRetrier(alwaysRetryable)
 	ctx := context.Background()
 
 	callCount := 0
@@ -93,7 +93,7 @@ func TestRetrier_Do_Success(t *testing.T) {
 }
 
 func TestRetrier_Do_NonRetryableError(t *testing.T) {
-	retrier := New(neverRetryable)
+	retrier := NewRetrier(neverRetryable)
 	ctx := context.Background()
 
 	callCount := 0
@@ -110,7 +110,7 @@ func TestRetrier_Do_NonRetryableError(t *testing.T) {
 }
 
 func TestRetrier_Do_RetryableErrorThenSuccess(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		alwaysRetryable,
 		WithBackoff([]time.Duration{1 * time.Millisecond, 2 * time.Millisecond}),
 	)
@@ -136,7 +136,7 @@ func TestRetrier_Do_RetryableErrorThenSuccess(t *testing.T) {
 }
 
 func TestRetrier_Do_RetryableErrorExhausted(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		alwaysRetryable,
 		WithBackoff([]time.Duration{1 * time.Millisecond, 2 * time.Millisecond}),
 	)
@@ -158,7 +158,7 @@ func TestRetrier_Do_RetryableErrorExhausted(t *testing.T) {
 }
 
 func TestRetrier_Do_SelectiveRetryable(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		selectiveRetryable,
 		WithBackoff([]time.Duration{1 * time.Millisecond}),
 	)
@@ -217,7 +217,7 @@ func TestRetrier_Do_SelectiveRetryable(t *testing.T) {
 }
 
 func TestRetrier_Do_ContextCancellation(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		alwaysRetryable,
 		WithBackoff([]time.Duration{100 * time.Millisecond}),
 	)
@@ -248,7 +248,7 @@ func TestRetrier_Do_ContextCancellation(t *testing.T) {
 }
 
 func TestRetrier_Do_EmptyBackoff(t *testing.T) {
-	retrier := New(alwaysRetryable, WithBackoff([]time.Duration{}))
+	retrier := NewRetrier(alwaysRetryable, WithBackoff([]time.Duration{}))
 	ctx := context.Background()
 
 	callCount := 0
@@ -266,7 +266,7 @@ func TestRetrier_Do_EmptyBackoff(t *testing.T) {
 }
 
 func TestRetrier_Do_PanicRecovery(t *testing.T) {
-	retrier := New(alwaysRetryable)
+	retrier := NewRetrier(alwaysRetryable)
 	ctx := context.Background()
 
 	operation := func(ctx context.Context) error {
@@ -279,7 +279,7 @@ func TestRetrier_Do_PanicRecovery(t *testing.T) {
 }
 
 func TestRetrier_Do_NilOperation(t *testing.T) {
-	retrier := New(alwaysRetryable)
+	retrier := NewRetrier(alwaysRetryable)
 	ctx := context.Background()
 
 	assert.Panics(t, func() {
@@ -288,7 +288,7 @@ func TestRetrier_Do_NilOperation(t *testing.T) {
 }
 
 func TestRetrier_Do_NilContext(t *testing.T) {
-	retrier := New(alwaysRetryable)
+	retrier := NewRetrier(alwaysRetryable)
 
 	operation := func(ctx context.Context) error {
 		return nil
@@ -299,7 +299,7 @@ func TestRetrier_Do_NilContext(t *testing.T) {
 }
 
 func BenchmarkRetrier_Do_Success(b *testing.B) {
-	retrier := New(alwaysRetryable)
+	retrier := NewRetrier(alwaysRetryable)
 	ctx := context.Background()
 
 	operation := func(ctx context.Context) error {
@@ -313,7 +313,7 @@ func BenchmarkRetrier_Do_Success(b *testing.B) {
 }
 
 func BenchmarkRetrier_Do_WithRetries(b *testing.B) {
-	retrier := New(
+	retrier := NewRetrier(
 		alwaysRetryable,
 		WithBackoff([]time.Duration{1 * time.Nanosecond, 1 * time.Nanosecond}),
 	)
@@ -338,7 +338,7 @@ func ExampleRetrier_Do() {
 		return errors.Is(err, errRetryable)
 	}
 
-	retrier := New(isRetryable, WithBackoff([]time.Duration{
+	retrier := NewRetrier(isRetryable, WithBackoff([]time.Duration{
 		100 * time.Millisecond,
 		200 * time.Millisecond,
 	}))
@@ -365,7 +365,7 @@ func ExampleNew() {
 		return true
 	}
 
-	retrier := New(isRetryable, WithBackoff([]time.Duration{
+	retrier := NewRetrier(isRetryable, WithBackoff([]time.Duration{
 		50 * time.Millisecond,
 		100 * time.Millisecond,
 		200 * time.Millisecond,
@@ -408,7 +408,7 @@ func postgresqlIsRetryable(err error) bool {
 }
 
 func TestRetrier_Do_DatabasePingSuccess(t *testing.T) {
-	retrier := New(postgresqlIsRetryable)
+	retrier := NewRetrier(postgresqlIsRetryable)
 	ctx := context.Background()
 
 	db := &mockDB{}
@@ -424,7 +424,7 @@ func TestRetrier_Do_DatabasePingSuccess(t *testing.T) {
 }
 
 func TestRetrier_Do_DatabasePingRetryableError(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		postgresqlIsRetryable,
 		WithBackoff([]time.Duration{1 * time.Millisecond, 2 * time.Millisecond}),
 	)
@@ -452,7 +452,7 @@ func TestRetrier_Do_DatabasePingRetryableError(t *testing.T) {
 }
 
 func TestRetrier_Do_DatabasePingNonRetryableError(t *testing.T) {
-	retrier := New(postgresqlIsRetryable)
+	retrier := NewRetrier(postgresqlIsRetryable)
 	ctx := context.Background()
 
 	db := &mockDB{
@@ -471,7 +471,7 @@ func TestRetrier_Do_DatabasePingNonRetryableError(t *testing.T) {
 }
 
 func TestRetrier_Do_DatabasePingExhaustedRetries(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		postgresqlIsRetryable,
 		WithBackoff([]time.Duration{1 * time.Millisecond, 2 * time.Millisecond}),
 	)
@@ -498,7 +498,7 @@ func TestRetrier_Do_DatabasePingExhaustedRetries(t *testing.T) {
 }
 
 func TestRetrier_Do_DatabasePingMixedErrors(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		postgresqlIsRetryable,
 		WithBackoff([]time.Duration{1 * time.Millisecond}),
 	)
@@ -523,7 +523,7 @@ func TestRetrier_Do_DatabasePingMixedErrors(t *testing.T) {
 }
 
 func TestRetrier_Do_DatabasePingContextTimeout(t *testing.T) {
-	retrier := New(
+	retrier := NewRetrier(
 		postgresqlIsRetryable,
 		WithBackoff([]time.Duration{50 * time.Millisecond}),
 	)
@@ -551,7 +551,7 @@ func TestRetrier_Do_DatabasePingContextTimeout(t *testing.T) {
 }
 
 func TestRetrier_Do_DatabasePingPanic(t *testing.T) {
-	retrier := New(postgresqlIsRetryable)
+	retrier := NewRetrier(postgresqlIsRetryable)
 	ctx := context.Background()
 
 	db := &mockDB{shouldPanic: true}
@@ -566,7 +566,7 @@ func TestRetrier_Do_DatabasePingPanic(t *testing.T) {
 }
 
 func BenchmarkRetrier_Do_DatabasePingSuccess(b *testing.B) {
-	retrier := New(postgresqlIsRetryable)
+	retrier := NewRetrier(postgresqlIsRetryable)
 	ctx := context.Background()
 
 	db := &mockDB{}
@@ -583,7 +583,7 @@ func BenchmarkRetrier_Do_DatabasePingSuccess(b *testing.B) {
 }
 
 func BenchmarkRetrier_Do_DatabasePingWithRetries(b *testing.B) {
-	retrier := New(
+	retrier := NewRetrier(
 		postgresqlIsRetryable,
 		WithBackoff([]time.Duration{1 * time.Nanosecond, 1 * time.Nanosecond}),
 	)
@@ -605,31 +605,4 @@ func BenchmarkRetrier_Do_DatabasePingWithRetries(b *testing.B) {
 
 		_ = retrier.Do(ctx, op)
 	}
-}
-
-func ExampleRetrier_Do_databasePing() {
-	isRetryable := func(err error) bool {
-		return errors.Is(err, errConnectionException) ||
-			errors.Is(err, errOperatorIntervention)
-	}
-
-	retrier := New(isRetryable)
-
-	db := &mockDB{
-		pingErrors: []error{
-			errConnectionException,
-			nil,
-		},
-	}
-
-	op := func(ctx context.Context) error {
-		return db.Ping(ctx)
-	}
-
-	ctx := context.Background()
-	err := retrier.Do(ctx, op)
-
-	fmt.Printf("Ping successful: %v, Attempts: %d\n", err == nil, db.pingCount)
-	// Output:
-	// Ping successful: true, Attempts: 2
 }

@@ -1,0 +1,52 @@
+[
+    {
+        "id": "LoadTestGauge1",
+        "type": "gauge",
+        "value": 524288
+    },
+    {
+        "id": "LoadTestGauge2",
+        "type": "gauge",
+        "value": 524288
+    },
+    {
+        "id": "LoadTestGauge3",
+        "type": "gauge",
+        "value": 524288
+    },
+    {
+        "id": "LoadTestGauge4",
+        "type": "gauge",
+        "value": 524288
+    },
+    {
+        "id": "LoadTestGauge5",
+        "type": "gauge",
+        "value": 524288
+    },
+    {
+        "id": "LoadTestCounter1",
+        "type": "counter",
+        "delta": 15
+    },
+    {
+        "id": "LoadTestCounter2",
+        "type": "counter",
+        "delta": 15
+    },
+    {
+        "id": "LoadTestCounter3",
+        "type": "counter",
+        "delta": 15
+    },
+    {
+        "id": "LoadTestCounter4",
+        "type": "counter",
+        "delta": 15
+    },
+    {
+        "id": "LoadTestCounter5",
+        "type": "counter",
+        "delta": 15
+    }
+]

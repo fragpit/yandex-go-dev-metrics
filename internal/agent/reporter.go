@@ -23,6 +23,7 @@ const (
 	clientPostTimeout = 5 * time.Second
 )
 
+// Reporter is responsible for reporting metrics to the server.
 type Reporter struct {
 	l    *slog.Logger
 	repo repository.Repository
@@ -32,6 +33,7 @@ type Reporter struct {
 	rateLimit int
 }
 
+// NewReporter creates a new Reporter instance.
 func NewReporter(
 	l *slog.Logger,
 	st repository.Repository,
@@ -48,6 +50,7 @@ func NewReporter(
 	}
 }
 
+// RunReporter starts the reporting process at the specified interval.
 func (r *Reporter) RunReporter(
 	ctx context.Context,
 	interval time.Duration,

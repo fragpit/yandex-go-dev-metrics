@@ -16,53 +16,77 @@ func (rt *Router) slogMiddleware(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		var err error
-		var bodyBytes []byte
-		var decompressedBody []byte
-		if r.Body != nil {
-			bodyBytes, err = io.ReadAll(r.Body)
-			if err != nil {
-				rt.logger.Error(
-					"error reading request body",
-					slog.Any("error", err),
-				)
-				http.Error(
-					w,
-					http.StatusText(http.StatusInternalServerError),
-					http.StatusInternalServerError,
-				)
-				return
-			}
-			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		if rt.logger.Enabled(r.Context(), slog.LevelDebug) {
+			var err error
+			var bodyBytes []byte
+			var decompressedBody []byte
+			if r.Body != nil {
+				bodyBytes, err = io.ReadAll(r.Body)
+				if err != nil {
+					rt.logger.Error(
+						"error reading request body",
+						slog.Any("error", err),
+					)
+					http.Error(
+						w,
+						http.StatusText(http.StatusInternalServerError),
+						http.StatusInternalServerError,
+					)
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
-			if r.Header.Get("Content-Encoding") == "gzip" &&
-				len(bodyBytes) > 0 {
-				gz, err := gzip.NewReader(
-					bytes.NewReader(bodyBytes))
-				if err == nil {
-					decompressedBody, _ = io.ReadAll(gz)
-					gz.Close()
+				if r.Header.Get("Content-Encoding") == "gzip" &&
+					len(bodyBytes) > 0 {
+					gz, err := gzip.NewReader(bytes.NewReader(bodyBytes))
+					if err != nil {
+						rt.logger.Error(
+							"failed to create gzip reader",
+							slog.Any("error", err),
+						)
+						http.Error(
+							w,
+							"failed to create reader",
+							http.StatusBadRequest,
+						)
+						return
+					}
+					defer gz.Close()
+
+					decompressedBody, err = io.ReadAll(gz)
+					if err != nil {
+						rt.logger.Error(
+							"error reading decompressed request body",
+							slog.Any("error", err),
+						)
+						http.Error(
+							w,
+							http.StatusText(http.StatusInternalServerError),
+							http.StatusInternalServerError,
+						)
+						return
+					}
 				}
 			}
-		}
 
-		logBody := string(bodyBytes)
-		if len(decompressedBody) > 0 {
-			logBody = string(decompressedBody)
-		}
+			logBody := string(bodyBytes)
+			if len(decompressedBody) > 0 {
+				logBody = string(decompressedBody)
+			}
 
-		rt.logger.Debug("request details",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.String("query", r.URL.RawQuery),
-			slog.String("user_agent", r.UserAgent()),
-			slog.String("referer", r.Referer()),
-			slog.Int("content_length", int(r.ContentLength)),
-			slog.String("host", r.Host),
-			slog.String("protocol", r.Proto),
-			slog.Any("headers", r.Header),
-			slog.String("body", logBody),
-		)
+			rt.logger.Debug("request details",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("query", r.URL.RawQuery),
+				slog.String("user_agent", r.UserAgent()),
+				slog.String("referer", r.Referer()),
+				slog.Int("content_length", int(r.ContentLength)),
+				slog.String("host", r.Host),
+				slog.String("protocol", r.Proto),
+				slog.Any("headers", r.Header),
+				slog.String("body", logBody),
+			)
+		}
 
 		ww := &responseWriter{ResponseWriter: w, statusCode: 200}
 

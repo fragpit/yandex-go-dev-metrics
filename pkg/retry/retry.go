@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
+// Operation is a function which will be retried
 type Operation func(ctx context.Context) error
 
+// IsRetryableFunc is a function which checks if error is retryable
 type IsRetryableFunc func(err error) bool
 
 type Retrier struct {
@@ -18,13 +20,14 @@ type Retrier struct {
 
 type Option func(*Retrier)
 
+// WithBackoff functional option sets custom backoff durations
 func WithBackoff(durations []time.Duration) Option {
 	return func(r *Retrier) {
 		r.backoff = durations
 	}
 }
 
-func New(IsRetryable IsRetryableFunc, opts ...Option) *Retrier {
+func NewRetrier(IsRetryable IsRetryableFunc, opts ...Option) *Retrier {
 	r := &Retrier{
 		backoff: []time.Duration{
 			1 * time.Second,
@@ -41,6 +44,7 @@ func New(IsRetryable IsRetryableFunc, opts ...Option) *Retrier {
 	return r
 }
 
+// Do executes Operation function and retries it according to configured backoff
 func (r *Retrier) Do(ctx context.Context, op Operation) error {
 	var lastErr error
 	err := op(ctx)
