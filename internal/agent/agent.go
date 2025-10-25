@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,7 +26,11 @@ func Run() error {
 	)
 	defer cancel()
 
-	cfg := config.NewAgentConfig()
+	cfg, err := config.NewAgentConfig()
+	if err != nil {
+		return fmt.Errorf("failed to initialize config: %w", err)
+	}
+
 	if cfg.LogLevel == "debug" {
 		cfg.Debug()
 	}

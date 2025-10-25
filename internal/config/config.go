@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
@@ -19,7 +20,7 @@ type AgentConfig struct {
 	RateLimit      int
 }
 
-func NewAgentConfig() *AgentConfig {
+func NewAgentConfig() (*AgentConfig, error) {
 	logLevel := flag.String(
 		"log-level",
 		"info",
@@ -81,7 +82,7 @@ func NewAgentConfig() *AgentConfig {
 				slog.String("parameter", "POLL_INTERVAL"),
 				slog.Any("error", err),
 			)
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to set parameter POLL_INTERVAL: %w", err)
 		}
 	}
 
@@ -95,7 +96,7 @@ func NewAgentConfig() *AgentConfig {
 				slog.String("parameter", "REPORT_INTERVAL"),
 				slog.Any("error", err),
 			)
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to set parameter REPORT_INTERVAL: %w", err)
 		}
 	}
 
@@ -114,7 +115,7 @@ func NewAgentConfig() *AgentConfig {
 				slog.String("parameter", "RATE_LIMIT"),
 				slog.Any("error", err),
 			)
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to set parameter RATE_LIMIT: %w", err)
 		}
 	}
 
@@ -125,7 +126,7 @@ func NewAgentConfig() *AgentConfig {
 		ReportInterval: finalReportInterval,
 		SecretKey:      []byte(finalSecretKey),
 		RateLimit:      finalRateLimit,
-	}
+	}, nil
 }
 
 // Debug logs the current agent configuration.
@@ -151,7 +152,7 @@ type ServerConfig struct {
 	AuditURL      string
 }
 
-func NewServerConfig() *ServerConfig {
+func NewServerConfig() (*ServerConfig, error) {
 	logLevel := flag.String(
 		"log-level",
 		"info",
@@ -228,7 +229,7 @@ func NewServerConfig() *ServerConfig {
 				slog.String("parameter", "STORE_INTERVAL"),
 				slog.Any("error", err),
 			)
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to set parameter STORE_INTERVAL: %w", err)
 		}
 	}
 	storeIntervalDuration := time.Duration(finalStoreInterval) * time.Second
@@ -248,7 +249,7 @@ func NewServerConfig() *ServerConfig {
 				slog.String("parameter", "RESTORE"),
 				slog.Any("error", err),
 			)
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to set parameter RESTORE: %w", err)
 		}
 	}
 
@@ -274,7 +275,7 @@ func NewServerConfig() *ServerConfig {
 
 	if finalAuditURL != "" && !validateURL(finalAuditURL) {
 		slog.Error("invalid audit URL", slog.String("url", finalAuditURL))
-		os.Exit(1)
+		return nil, fmt.Errorf("invalid audit URL: %s", finalAuditURL)
 	}
 
 	return &ServerConfig{
@@ -287,7 +288,7 @@ func NewServerConfig() *ServerConfig {
 		SecretKey:     []byte(finalSecretKey),
 		AuditFile:     finalAuditFile,
 		AuditURL:      finalAuditURL,
-	}
+	}, nil
 }
 
 // Debug logs the current server configuration.

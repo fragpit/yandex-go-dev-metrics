@@ -38,6 +38,9 @@ tasks:
       - task: test
       - task: lint
 
+  lint-custom:
+    cmd: go run cmd/linter/main.go cmd/linter/customanalyzer.go ./...
+
   build-dev:
     cmds:
       - mkdir -p {{ .BUILD_DIR }}
