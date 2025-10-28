@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// generate:reset
 type AgentConfig struct {
 	LogLevel       string
 	ServerURL      string
@@ -140,6 +141,7 @@ func (c *AgentConfig) Debug() {
 	)
 }
 
+// generate:reset
 type ServerConfig struct {
 	LogLevel      string
 	Address       string

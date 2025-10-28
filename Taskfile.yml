@@ -29,6 +29,10 @@ tasks:
     cmds:
       - go generate -v ./...
 
+  generate-reset:
+    cmds:
+      - go generate -v ./cmd/reset/
+
   lint:
     cmds:
       - golangci-lint-v2 run
