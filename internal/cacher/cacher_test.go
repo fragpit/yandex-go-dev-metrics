@@ -190,3 +190,92 @@ func TestCacher_saveMetrics(t *testing.T) {
 		})
 	}
 }
+
+func TestCacher_Restore_InvalidJSON(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "metrics-*.json")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	// Записываем невалидный JSON
+	_, err = tmpFile.WriteString(`[{"invalid json`)
+	require.NoError(t, err)
+	tmpFile.Close()
+
+	storage := memstorage.NewMemoryStorage()
+	logger := slog.New(
+		slog.NewTextHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelError},
+		),
+	)
+	cacher := NewCacher(logger, storage, tmpFile.Name(), time.Second)
+
+	metrics, err := cacher.Restore()
+	assert.Error(t, err)
+	assert.Nil(t, metrics)
+}
+
+func TestCacher_Restore_EmptyFile(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "metrics-*.json")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	// Пустой файл
+	tmpFile.Close()
+
+	storage := memstorage.NewMemoryStorage()
+	logger := slog.New(
+		slog.NewTextHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelError},
+		),
+	)
+	cacher := NewCacher(logger, storage, tmpFile.Name(), time.Second)
+
+	metrics, err := cacher.Restore()
+	assert.Error(t, err)
+	assert.Nil(t, metrics)
+}
+
+func TestCacher_Restore_ValidMetrics(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "metrics-*.json")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	// Записываем валидные метрики
+	m1 := model.Metrics{
+		ID:    "counter1",
+		MType: "counter",
+		Delta: ptrInt64(10),
+	}
+	m2 := model.Metrics{
+		ID:    "gauge1",
+		MType: "gauge",
+		Value: ptrFloat64(42.5),
+	}
+
+	encoder := json.NewEncoder(tmpFile)
+	_ = encoder.Encode([]model.Metrics{m1, m2})
+	tmpFile.Close()
+
+	storage := memstorage.NewMemoryStorage()
+	logger := slog.New(
+		slog.NewTextHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: slog.LevelError},
+		),
+	)
+	cacher := NewCacher(logger, storage, tmpFile.Name(), time.Second)
+
+	metrics, err := cacher.Restore()
+	assert.NoError(t, err)
+	assert.Len(t, metrics, 2)
+}
+
+func ptrInt64(v int64) *int64 {
+	return &v
+}
+
+func ptrFloat64(v float64) *float64 {
+	return &v
+}

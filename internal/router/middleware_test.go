@@ -1,6 +1,7 @@
 package router
 
 import (
+	"compress/gzip"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRouter_checksumMiddleware(t *testing.T) {
@@ -129,4 +131,234 @@ func generateValidChecksum(body string, secretKey []byte) string {
 	mac := hmac.New(sha256.New, secretKey)
 	mac.Write([]byte(body))
 	return base64.RawStdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func TestRouter_decompressMiddleware(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	repo := memstorage.NewMemoryStorage()
+
+	router := &Router{
+		logger: logger,
+		repo:   repo,
+	}
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
+	})
+
+	middleware := router.decompressMiddleware(testHandler)
+
+	tests := []struct {
+		name           string
+		body           string
+		compress       bool
+		contentLength  int64
+		expectedStatus int
+		expectedBody   string
+	}{
+		{
+			name:           "pass through non-gzip body",
+			body:           "test data",
+			compress:       false,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "test data",
+		},
+		{
+			name:           "decompress gzip body",
+			body:           "test data",
+			compress:       true,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "test data",
+		},
+		{
+			name:           "empty gzip body",
+			body:           "",
+			compress:       true,
+			contentLength:  0,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req *http.Request
+
+			if tt.compress {
+				var buf strings.Builder
+				gw := gzip.NewWriter(&buf)
+				_, err := gw.Write([]byte(tt.body))
+				assert.NoError(t, err)
+				err = gw.Close()
+				assert.NoError(t, err)
+
+				req = httptest.NewRequest(http.MethodPost, "/test",
+					strings.NewReader(buf.String()))
+				req.Header.Set("Content-Encoding", "gzip")
+				if tt.contentLength > 0 {
+					req.ContentLength = tt.contentLength
+				}
+			} else {
+				req = httptest.NewRequest(http.MethodPost, "/test",
+					strings.NewReader(tt.body))
+			}
+
+			rr := httptest.NewRecorder()
+			middleware.ServeHTTP(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+			assert.Equal(t, tt.expectedBody, rr.Body.String())
+		})
+	}
+}
+
+func TestRouter_decompressMiddleware_InvalidGzip(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	repo := memstorage.NewMemoryStorage()
+
+	router := &Router{
+		logger: logger,
+		repo:   repo,
+	}
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	middleware := router.decompressMiddleware(testHandler)
+
+	req := httptest.NewRequest(http.MethodPost, "/test",
+		strings.NewReader("not gzip data"))
+	req.Header.Set("Content-Encoding", "gzip")
+	req.ContentLength = 10
+
+	rr := httptest.NewRecorder()
+	middleware.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "failed to create reader")
+}
+
+func TestRouter_slogMiddleware(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	repo := memstorage.NewMemoryStorage()
+
+	router := &Router{
+		logger: logger,
+		repo:   repo,
+	}
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("response"))
+	})
+
+	middleware := router.slogMiddleware(testHandler)
+
+	tests := []struct {
+		name           string
+		method         string
+		path           string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name:           "simple GET request",
+			method:         http.MethodGet,
+			path:           "/test",
+			body:           "",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "POST with body",
+			method:         http.MethodPost,
+			path:           "/api/update",
+			body:           `{"test": "data"}`,
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path,
+				strings.NewReader(tt.body))
+			rr := httptest.NewRecorder()
+
+			middleware.ServeHTTP(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+		})
+	}
+}
+
+func TestRouter_slogMiddleware_WithDebugLogging(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+	repo := memstorage.NewMemoryStorage()
+
+	router := &Router{
+		logger: logger,
+		repo:   repo,
+	}
+
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	middleware := router.slogMiddleware(testHandler)
+
+	tests := []struct {
+		name           string
+		body           string
+		compress       bool
+		expectedStatus int
+	}{
+		{
+			name:           "debug logging with plain body",
+			body:           `{"test": "data"}`,
+			compress:       false,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "debug logging with gzip body",
+			body:           `{"test": "compressed"}`,
+			compress:       true,
+			expectedStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req *http.Request
+
+			if tt.compress {
+				var buf strings.Builder
+				gw := gzip.NewWriter(&buf)
+				_, err := gw.Write([]byte(tt.body))
+				require.NoError(t, err)
+				err = gw.Close()
+				require.NoError(t, err)
+
+				req = httptest.NewRequest(http.MethodPost, "/test",
+					strings.NewReader(buf.String()))
+				req.Header.Set("Content-Encoding", "gzip")
+			} else {
+				req = httptest.NewRequest(http.MethodPost, "/test",
+					strings.NewReader(tt.body))
+			}
+
+			rr := httptest.NewRecorder()
+			middleware.ServeHTTP(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+		})
+	}
 }
