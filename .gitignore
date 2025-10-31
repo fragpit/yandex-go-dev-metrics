@@ -30,3 +30,6 @@ vendor/
 # env file
 .env
 __debug_bin*
+
+# generated files
+reset.gen.go

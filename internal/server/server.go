@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,7 +26,11 @@ func Run() error {
 	)
 	defer cancel()
 
-	cfg := config.NewServerConfig()
+	cfg, err := config.NewServerConfig()
+	if err != nil {
+		return fmt.Errorf("failed to initialize config: %w", err)
+	}
+
 	if cfg.LogLevel == "debug" {
 		cfg.Debug()
 	}
@@ -43,7 +48,6 @@ func Run() error {
 	}))
 	slog.SetDefault(logger)
 
-	var err error
 	var st repository.Repository
 	if cfg.DatabaseDSN != "" {
 		if st, err = postgresql.NewStorage(ctx, cfg.DatabaseDSN); err != nil {

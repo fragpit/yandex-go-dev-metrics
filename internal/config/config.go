@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
@@ -10,6 +11,48 @@ import (
 	"time"
 )
 
+type envParser[T any] func(string) (T, error)
+
+func getEnvOrDefault[T any](
+	envKey string,
+	defaultValue T,
+	parser envParser[T],
+) (T, error) {
+	env := os.Getenv(envKey)
+	if env == "" {
+		return defaultValue, nil
+	}
+
+	value, err := parser(env)
+	if err != nil {
+		slog.Error(
+			"error converting parameter",
+			slog.String("parameter", envKey),
+			slog.Any("error", err),
+		)
+		return defaultValue, fmt.Errorf(
+			"failed to set parameter %s: %w",
+			envKey,
+			err,
+		)
+	}
+
+	return value, nil
+}
+
+func parseString(s string) (string, error) {
+	return s, nil
+}
+
+func parseInt(s string) (int, error) {
+	return strconv.Atoi(s)
+}
+
+func parseBool(s string) (bool, error) {
+	return strconv.ParseBool(s)
+}
+
+// generate:reset
 type AgentConfig struct {
 	LogLevel       string
 	ServerURL      string
@@ -19,7 +62,7 @@ type AgentConfig struct {
 	RateLimit      int
 }
 
-func NewAgentConfig() *AgentConfig {
+func NewAgentConfig() (*AgentConfig, error) {
 	logLevel := flag.String(
 		"log-level",
 		"info",
@@ -58,64 +101,45 @@ func NewAgentConfig() *AgentConfig {
 
 	flag.Parse()
 
-	finalLogLevel := *logLevel
-	if env := os.Getenv("LOG_LEVEL"); env != "" {
-		finalLogLevel = env
+	finalLogLevel, err := getEnvOrDefault("LOG_LEVEL", *logLevel, parseString)
+	if err != nil {
+		return nil, err
 	}
 
-	finalServerURL := *serverURL
-	if env := os.Getenv("ADDRESS"); env != "" {
-		finalServerURL = env
+	finalServerURL, err := getEnvOrDefault("ADDRESS", *serverURL, parseString)
+	if err != nil {
+		return nil, err
 	}
 	if !strings.HasPrefix(finalServerURL, "http://") {
 		finalServerURL = "http://" + finalServerURL
 	}
 
-	finalPollInterval := *pollInterval
-	if env := os.Getenv("POLL_INTERVAL"); env != "" {
-		var err error
-		finalPollInterval, err = strconv.Atoi(env)
-		if err != nil {
-			slog.Error(
-				"error converting parameter",
-				slog.String("parameter", "POLL_INTERVAL"),
-				slog.Any("error", err),
-			)
-			os.Exit(1)
-		}
+	finalPollInterval, err := getEnvOrDefault(
+		"POLL_INTERVAL",
+		*pollInterval,
+		parseInt,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	finalReportInterval := *reportInterval
-	if env := os.Getenv("REPORT_INTERVAL"); env != "" {
-		var err error
-		finalReportInterval, err = strconv.Atoi(env)
-		if err != nil {
-			slog.Error(
-				"error converting parameter",
-				slog.String("parameter", "REPORT_INTERVAL"),
-				slog.Any("error", err),
-			)
-			os.Exit(1)
-		}
+	finalReportInterval, err := getEnvOrDefault(
+		"REPORT_INTERVAL",
+		*reportInterval,
+		parseInt,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	finalSecretKey := *secretKey
-	if env := os.Getenv("KEY"); env != "" {
-		finalSecretKey = env
+	finalSecretKey, err := getEnvOrDefault("KEY", *secretKey, parseString)
+	if err != nil {
+		return nil, err
 	}
 
-	finalRateLimit := *rateLimit
-	if env := os.Getenv("RATE_LIMIT"); env != "" {
-		var err error
-		finalRateLimit, err = strconv.Atoi(env)
-		if err != nil {
-			slog.Error(
-				"error converting parameter",
-				slog.String("parameter", "RATE_LIMIT"),
-				slog.Any("error", err),
-			)
-			os.Exit(1)
-		}
+	finalRateLimit, err := getEnvOrDefault("RATE_LIMIT", *rateLimit, parseInt)
+	if err != nil {
+		return nil, err
 	}
 
 	return &AgentConfig{
@@ -125,7 +149,7 @@ func NewAgentConfig() *AgentConfig {
 		ReportInterval: finalReportInterval,
 		SecretKey:      []byte(finalSecretKey),
 		RateLimit:      finalRateLimit,
-	}
+	}, nil
 }
 
 // Debug logs the current agent configuration.
@@ -139,6 +163,7 @@ func (c *AgentConfig) Debug() {
 	)
 }
 
+// generate:reset
 type ServerConfig struct {
 	LogLevel      string
 	Address       string
@@ -151,7 +176,7 @@ type ServerConfig struct {
 	AuditURL      string
 }
 
-func NewServerConfig() *ServerConfig {
+func NewServerConfig() (*ServerConfig, error) {
 	logLevel := flag.String(
 		"log-level",
 		"info",
@@ -208,73 +233,63 @@ func NewServerConfig() *ServerConfig {
 
 	flag.Parse()
 
-	finalLogLevel := *logLevel
-	if env := os.Getenv("LOG_LEVEL"); env != "" {
-		finalLogLevel = env
+	finalLogLevel, err := getEnvOrDefault("LOG_LEVEL", *logLevel, parseString)
+	if err != nil {
+		return nil, err
 	}
 
-	finalAddress := *address
-	if env := os.Getenv("ADDRESS"); env != "" {
-		finalAddress = env
+	finalAddress, err := getEnvOrDefault("ADDRESS", *address, parseString)
+	if err != nil {
+		return nil, err
 	}
 
-	finalStoreInterval := *storeInterval
-	if env := os.Getenv("STORE_INTERVAL"); env != "" {
-		var err error
-		finalStoreInterval, err = strconv.Atoi(env)
-		if err != nil {
-			slog.Error(
-				"error converting parameter",
-				slog.String("parameter", "STORE_INTERVAL"),
-				slog.Any("error", err),
-			)
-			os.Exit(1)
-		}
+	finalStoreInterval, err := getEnvOrDefault(
+		"STORE_INTERVAL",
+		*storeInterval,
+		parseInt,
+	)
+	if err != nil {
+		return nil, err
 	}
 	storeIntervalDuration := time.Duration(finalStoreInterval) * time.Second
 
-	finalFileStorePath := *fileStorePath
-	if env := os.Getenv("FILE_STORAGE_PATH"); env != "" {
-		finalFileStorePath = env
+	finalFileStorePath, err := getEnvOrDefault(
+		"FILE_STORAGE_PATH",
+		*fileStorePath,
+		parseString,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	finalRestore := *restore
-	if env := os.Getenv("RESTORE"); env != "" {
-		var err error
-		finalRestore, err = strconv.ParseBool(env)
-		if err != nil {
-			slog.Error(
-				"error converting parameter",
-				slog.String("parameter", "RESTORE"),
-				slog.Any("error", err),
-			)
-			os.Exit(1)
-		}
+	finalRestore, err := getEnvOrDefault("RESTORE", *restore, parseBool)
+	if err != nil {
+		return nil, err
 	}
 
-	finalDBDSN := *dbDSN
-	if env := os.Getenv("DATABASE_DSN"); env != "" {
-		finalDBDSN = env
+	finalDBDSN, err := getEnvOrDefault("DATABASE_DSN", *dbDSN, parseString)
+	if err != nil {
+		return nil, err
 	}
 
-	finalSecretKey := *secretKey
-	if env := os.Getenv("KEY"); env != "" {
-		finalSecretKey = env
+	finalSecretKey, err := getEnvOrDefault("KEY", *secretKey, parseString)
+	if err != nil {
+		return nil, err
 	}
 
-	finalAuditFile := *auditFile
-	if env := os.Getenv("AUDIT_FILE"); env != "" {
-		finalAuditFile = env
+	finalAuditFile, err := getEnvOrDefault("AUDIT_FILE", *auditFile, parseString)
+	if err != nil {
+		return nil, err
 	}
 
-	finalAuditURL := *auditURL
-	if env := os.Getenv("AUDIT_URL"); env != "" {
-		finalAuditURL = env
+	finalAuditURL, err := getEnvOrDefault("AUDIT_URL", *auditURL, parseString)
+	if err != nil {
+		return nil, err
 	}
 
 	if finalAuditURL != "" && !validateURL(finalAuditURL) {
 		slog.Error("invalid audit URL", slog.String("url", finalAuditURL))
-		os.Exit(1)
+		return nil, fmt.Errorf("invalid audit URL: %s", finalAuditURL)
 	}
 
 	return &ServerConfig{
@@ -287,7 +302,7 @@ func NewServerConfig() *ServerConfig {
 		SecretKey:     []byte(finalSecretKey),
 		AuditFile:     finalAuditFile,
 		AuditURL:      finalAuditURL,
-	}
+	}, nil
 }
 
 // Debug logs the current server configuration.

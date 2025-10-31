@@ -29,6 +29,10 @@ tasks:
     cmds:
       - go generate -v ./...
 
+  generate-reset:
+    cmds:
+      - go generate -v ./cmd/reset/
+
   lint:
     cmds:
       - golangci-lint-v2 run
@@ -38,13 +42,30 @@ tasks:
       - task: test
       - task: lint
 
+  lint-custom:
+    cmd: go run cmd/linter/main.go cmd/linter/customanalyzer.go ./...
+
   build-dev:
+    vars:
+      BUILD_VERSION: "0.0.0"
+      BUILD_DATE:
+        sh: date -u +"%Y-%m-%d %H:%M:%S"
+      BUILD_COMMIT:
+        sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
     cmds:
+      - task: generate
       - mkdir -p {{ .BUILD_DIR }}
-      - go build -tags dev -o {{ .BUILD_DIR }} {{ .ROOT_DIR }}/cmd/...
+      - >
+        go build -tags dev
+        -ldflags "-X 'main.buildVersion={{ .BUILD_VERSION }}-{{ .BUILD_COMMIT }}'
+        -X 'main.buildDate={{ .BUILD_DATE }}'
+        -X 'main.buildCommit={{ .BUILD_COMMIT }}'"
+        -o {{ .BUILD_DIR }}
+        {{ .ROOT_DIR }}/cmd/...
 
   run-server:
     cmds:
+      - task: generate
       - go run -tags=dev {{ .ROOT_DIR }}/cmd/server/*.go {{ .CLI_ARGS }}
 
   run-server-pg:
@@ -62,6 +83,7 @@ tasks:
 
   run-agent:
     cmds:
+      - task: generate
       - go run -tags=dev {{ .ROOT_DIR }}/cmd/agent/*.go {{ .CLI_ARGS }}
 
   run-metricstest:
