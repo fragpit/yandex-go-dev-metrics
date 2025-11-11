@@ -52,7 +52,6 @@ func parseBool(s string) (bool, error) {
 	return strconv.ParseBool(s)
 }
 
-// generate:reset
 type AgentConfig struct {
 	LogLevel       string
 	ServerURL      string
@@ -60,6 +59,7 @@ type AgentConfig struct {
 	ReportInterval int
 	SecretKey      []byte
 	RateLimit      int
+	CryptoKey      string
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
@@ -97,6 +97,12 @@ func NewAgentConfig() (*AgentConfig, error) {
 		"l",
 		1,
 		"лимит одновременных запросов к серверу (по умолчанию 1)",
+	)
+
+	cryptoKey := flag.String(
+		"crypto-key",
+		"",
+		"публичный ключ для шифрования сообщений (выключено по умолчанию)",
 	)
 
 	flag.Parse()
@@ -142,6 +148,11 @@ func NewAgentConfig() (*AgentConfig, error) {
 		return nil, err
 	}
 
+	finalCryptoKey, err := getEnvOrDefault("CRYPTO_KEY", *cryptoKey, parseString)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AgentConfig{
 		LogLevel:       finalLogLevel,
 		ServerURL:      finalServerURL,
@@ -149,6 +160,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 		ReportInterval: finalReportInterval,
 		SecretKey:      []byte(finalSecretKey),
 		RateLimit:      finalRateLimit,
+		CryptoKey:      finalCryptoKey,
 	}, nil
 }
 
@@ -163,7 +175,6 @@ func (c *AgentConfig) Debug() {
 	)
 }
 
-// generate:reset
 type ServerConfig struct {
 	LogLevel      string
 	Address       string
@@ -174,6 +185,7 @@ type ServerConfig struct {
 	SecretKey     []byte
 	AuditFile     string
 	AuditURL      string
+	CryptoKey     string
 }
 
 func NewServerConfig() (*ServerConfig, error) {
@@ -229,6 +241,12 @@ func NewServerConfig() (*ServerConfig, error) {
 		"audit-url",
 		"",
 		"URL для отправки аудита (по умолчанию не используется)",
+	)
+
+	cryptoKey := flag.String(
+		"crypto-key",
+		"",
+		"приватный ключ для шифрования сообщений (выключено по умолчанию)",
 	)
 
 	flag.Parse()
@@ -292,6 +310,11 @@ func NewServerConfig() (*ServerConfig, error) {
 		return nil, fmt.Errorf("invalid audit URL: %s", finalAuditURL)
 	}
 
+	finalCryptoKey, err := getEnvOrDefault("CRYPTO_KEY", *cryptoKey, parseString)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ServerConfig{
 		LogLevel:      finalLogLevel,
 		Address:       finalAddress,
@@ -302,6 +325,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		SecretKey:     []byte(finalSecretKey),
 		AuditFile:     finalAuditFile,
 		AuditURL:      finalAuditURL,
+		CryptoKey:     finalCryptoKey,
 	}, nil
 }
 
@@ -317,6 +341,7 @@ func (c *ServerConfig) Debug() {
 		slog.String("database_dsn", c.DatabaseDSN),
 		slog.String("audit_file", c.AuditFile),
 		slog.String("audit_url", c.AuditURL),
+		slog.String("crypto_key", c.CryptoKey),
 	)
 }
 

@@ -90,6 +90,7 @@ func Run() error {
 		cfg.ServerURL,
 		cfg.SecretKey,
 		cfg.RateLimit,
+		cfg.CryptoKey,
 	)
 	wg.Add(1)
 	go func() {

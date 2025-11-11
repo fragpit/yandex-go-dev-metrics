@@ -50,7 +50,7 @@ func BenchmarkRouter_updatesHandler(b *testing.B) {
 		Return(nil).
 		AnyTimes()
 
-	router := NewRouter(logger, auditor, storeMock, nil)
+	router := NewRouter(logger, auditor, storeMock, nil, "")
 
 	body, _ := json.Marshal(metrics)
 

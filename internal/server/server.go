@@ -125,6 +125,7 @@ func Run() error {
 		auditor,
 		st,
 		cfg.SecretKey,
+		cfg.CryptoKey,
 	)
 
 	if err := router.Run(ctx, cfg.Address); err != nil {

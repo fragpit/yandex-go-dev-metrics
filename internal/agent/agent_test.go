@@ -35,7 +35,14 @@ func TestAgentComponents(t *testing.T) {
 	})
 
 	t.Run("create reporter", func(t *testing.T) {
-		reporter := NewReporter(logger, storage, "http://localhost:8080", nil, 1)
+		reporter := NewReporter(
+			logger,
+			storage,
+			"http://localhost:8080",
+			nil,
+			1,
+			"",
+		)
 		assert.NotNil(t, reporter)
 	})
 

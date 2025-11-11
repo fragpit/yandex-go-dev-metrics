@@ -68,6 +68,7 @@ func TestServerConfig_Debug(t *testing.T) {
 
 func TestNewAgentConfig_Defaults(t *testing.T) {
 	// Сбрасываем флаги и переменные окружения
+	os.Clearenv()
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()

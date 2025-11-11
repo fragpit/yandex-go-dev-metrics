@@ -2,13 +2,12 @@ package router
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
@@ -17,6 +16,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+//go:embed templates/root.tpl
+var rootTemplate string
 
 // apiShutdownTimeout defines the timeout for graceful shutdown of the API server.
 const apiShutdownTimeout = 5 * time.Second
@@ -28,6 +30,7 @@ type Router struct {
 	logger    *slog.Logger
 	auditor   *audit.Auditor
 	secretKey []byte
+	cryptoKey string
 }
 
 // NewRouter creates a new Router instance.
@@ -36,12 +39,14 @@ func NewRouter(
 	a *audit.Auditor,
 	st repository.Repository,
 	key []byte,
+	cryptoKey string,
 ) *Router {
 	r := &Router{
 		logger:    l,
 		auditor:   a,
 		repo:      st,
 		secretKey: key,
+		cryptoKey: cryptoKey,
 	}
 	r.router = r.initRoutes()
 	return r
@@ -81,6 +86,7 @@ func (rt *Router) initRoutes() http.Handler {
 			r.Use(rt.checksumMiddleware)
 		}
 		r.Use(rt.decompressMiddleware)
+		r.Use(rt.decryptMiddleware)
 		r.Post("/", rt.updatesHandler)
 	})
 
@@ -146,10 +152,7 @@ func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, filename, _, _ := runtime.Caller(0)
-	templatePath := filepath.Join(filepath.Dir(filename), "templates", "root.tpl")
-
-	tpl, err := template.ParseFiles(templatePath)
+	tpl, err := template.New("root").Parse(rootTemplate)
 	if err != nil {
 		rt.logger.Error("template parse error", slog.Any("error", err))
 		http.Error(
