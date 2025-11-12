@@ -23,6 +23,7 @@ func Run() error {
 		context.Background(),
 		syscall.SIGTERM,
 		syscall.SIGINT,
+		syscall.SIGQUIT,
 	)
 	defer cancel()
 
