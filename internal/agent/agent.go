@@ -88,7 +88,7 @@ func Run() error {
 		logger.With("service", "reporter"),
 		st,
 		cfg.ServerURL,
-		cfg.SecretKey,
+		[]byte(cfg.SecretKey),
 		cfg.RateLimit,
 		cfg.CryptoKey,
 	)

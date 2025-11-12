@@ -124,7 +124,7 @@ func Run() error {
 		logger.With("service", "router"),
 		auditor,
 		st,
-		cfg.SecretKey,
+		[]byte(cfg.SecretKey),
 		cfg.CryptoKey,
 	)
 
