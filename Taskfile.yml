@@ -11,7 +11,7 @@ env:
 tasks:
   test-cover:
     cmds:
-      - task: generate
+      - go clean -cache -testcache
       - go test
             -covermode=atomic
             -coverpkg=./...

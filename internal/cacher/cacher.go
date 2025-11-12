@@ -13,7 +13,6 @@ import (
 )
 
 // Cacher periodically saves metrics to a file and can restore them on startup
-// generate:reset
 type Cacher struct {
 	logger  *slog.Logger
 	storage repository.Repository
