@@ -121,13 +121,16 @@ func Run() error {
 		}()
 	}
 
-	router := router.NewRouter(
+	router, err := router.NewRouter(
 		logger.With("service", "router"),
 		auditor,
 		st,
 		[]byte(cfg.SecretKey),
 		cfg.CryptoKey,
 	)
+	if err != nil {
+		return err
+	}
 
 	if err := router.Run(ctx, cfg.Address); err != nil {
 		return err

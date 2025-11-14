@@ -7,15 +7,10 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
-	"encoding/pem"
-	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 )
 
@@ -168,17 +163,6 @@ func (rt *Router) decryptMiddleware(h http.Handler) http.Handler {
 				return
 			}
 
-			privateKey, err := readKey(rt.cryptoKey)
-			if err != nil {
-				rt.logger.Error("failed to read key", slog.Any("error", err))
-				http.Error(
-					w,
-					http.StatusText(http.StatusInternalServerError),
-					http.StatusInternalServerError,
-				)
-				return
-			}
-
 			data, err := io.ReadAll(r.Body)
 			if err != nil {
 				rt.logger.Error("failed to read body", slog.Any("error", err))
@@ -190,7 +174,7 @@ func (rt *Router) decryptMiddleware(h http.Handler) http.Handler {
 				return
 			}
 
-			decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, data)
+			decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, rt.privateKey, data)
 			if err != nil {
 				rt.logger.Error("failed to decrypt body", slog.Any("error", err))
 				http.Error(
@@ -252,23 +236,4 @@ func (rt *Router) checksumMiddleware(h http.Handler) http.Handler {
 
 		h.ServeHTTP(w, r)
 	})
-}
-
-func readKey(keyPath string) (*rsa.PrivateKey, error) {
-	privateKeyBytes, err := os.ReadFile(keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	privateKeyPEM, _ := pem.Decode(privateKeyBytes)
-	if privateKeyPEM == nil {
-		return nil, errors.New("invalid key format")
-	}
-
-	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyPEM.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode key: %w", err)
-	}
-
-	return privateKey, nil
 }

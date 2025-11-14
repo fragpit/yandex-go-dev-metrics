@@ -2,12 +2,18 @@ package router
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	_ "embed"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
@@ -25,12 +31,12 @@ const apiShutdownTimeout = 5 * time.Second
 
 // Router handles HTTP requests and routes them to appropriate handlers.
 type Router struct {
-	repo      repository.Repository
-	router    http.Handler
-	logger    *slog.Logger
-	auditor   *audit.Auditor
-	secretKey []byte
-	cryptoKey string
+	repo       repository.Repository
+	router     http.Handler
+	logger     *slog.Logger
+	auditor    *audit.Auditor
+	secretKey  []byte
+	privateKey *rsa.PrivateKey
 }
 
 // NewRouter creates a new Router instance.
@@ -40,16 +46,30 @@ func NewRouter(
 	st repository.Repository,
 	key []byte,
 	cryptoKey string,
-) *Router {
+) (*Router, error) {
 	r := &Router{
 		logger:    l,
 		auditor:   a,
 		repo:      st,
 		secretKey: key,
-		cryptoKey: cryptoKey,
 	}
+
+	if len(cryptoKey) > 0 {
+		privateKey, err := readKey(cryptoKey)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to read private key from file %s: %w",
+				cryptoKey,
+				err,
+			)
+		}
+
+		r.privateKey = privateKey
+	}
+
 	r.router = r.initRoutes()
-	return r
+
+	return r, nil
 }
 
 // initRoutes initializes the HTTP routes and middleware.
@@ -85,8 +105,13 @@ func (rt *Router) initRoutes() http.Handler {
 		if len(rt.secretKey) > 0 {
 			r.Use(rt.checksumMiddleware)
 		}
+
 		r.Use(rt.decompressMiddleware)
-		r.Use(rt.decryptMiddleware)
+
+		if rt.privateKey != nil {
+			r.Use(rt.decryptMiddleware)
+		}
+
 		r.Post("/", rt.updatesHandler)
 	})
 
@@ -486,4 +511,23 @@ func getClientIP(ipPort string) string {
 		return ipPort
 	}
 	return ip
+}
+
+func readKey(keyPath string) (*rsa.PrivateKey, error) {
+	privateKeyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	privateKeyPEM, _ := pem.Decode(privateKeyBytes)
+	if privateKeyPEM == nil {
+		return nil, errors.New("invalid key format")
+	}
+
+	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyPEM.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key: %w", err)
+	}
+
+	return privateKey, nil
 }

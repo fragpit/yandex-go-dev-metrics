@@ -149,7 +149,8 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
 
-			r := NewRouter(l, a, st, nil, "")
+			r, err := NewRouter(l, a, st, nil, "")
+			require.NoError(t, err)
 
 			r.updateMetricJSON(rr, req)
 			res := rr.Result()
@@ -276,7 +277,8 @@ func TestRouter_getMetricJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
 
-			r := NewRouter(l, a, st, nil, "")
+			r, err := NewRouter(l, a, st, nil, "")
+			require.NoError(t, err)
 
 			r.getMetricJSON(rr, req)
 			res := rr.Result()
@@ -297,7 +299,8 @@ func TestRouter_TestRoutes(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
-	r := NewRouter(l, a, st, nil, "")
+	r, err := NewRouter(l, a, st, nil, "")
+	require.NoError(t, err)
 
 	ts := httptest.NewServer(r.router)
 	defer ts.Close()
@@ -550,7 +553,8 @@ func TestRouter_updateMetric(t *testing.T) {
 				nil,
 			)
 			rr := httptest.NewRecorder()
-			r := NewRouter(l, a, st, nil, "")
+			r, err := NewRouter(l, a, st, nil, "")
+			require.NoError(t, err)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -645,7 +649,8 @@ func TestRouter_getMetric(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			r := NewRouter(l, a, st, nil, "")
+			r, err := NewRouter(l, a, st, nil, "")
+			require.NoError(t, err)
 
 			chiCtx := chi.NewRouteContext()
 			req = req.WithContext(
@@ -715,7 +720,9 @@ func TestRouter_pingHandler(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
 			rr := httptest.NewRecorder()
 
-			router := NewRouter(l, a, storeMock, nil, "")
+			router, err := NewRouter(l, a, storeMock, nil, "")
+			require.NoError(t, err)
+
 			router.pingHandler(rr, req)
 
 			assert.Equal(t, tt.want.code, rr.Code)
@@ -728,7 +735,8 @@ func TestRouter_updatesHandler(t *testing.T) {
 	st := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
-	r := NewRouter(l, a, st, nil, "")
+	r, err := NewRouter(l, a, st, nil, "")
+	require.NoError(t, err)
 
 	type want struct {
 		code int
@@ -849,7 +857,8 @@ func TestRouter_rootHandler(t *testing.T) {
 	)
 	repo := memstorage.NewMemoryStorage()
 	auditor := audit.NewAuditor()
-	router := NewRouter(logger, auditor, repo, nil, "")
+	router, err := NewRouter(logger, auditor, repo, nil, "")
+	require.NoError(t, err)
 
 	m1, _ := model.NewMetric("test_gauge", model.GaugeType)
 	_ = m1.SetValue("42.5")
