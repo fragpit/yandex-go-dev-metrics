@@ -15,7 +15,7 @@ import (
 func generateKeys(outDir string) error {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to generate rsa key: %w", err)
 	}
 
 	privateKeyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
@@ -26,7 +26,7 @@ func generateKeys(outDir string) error {
 
 	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal public key: %w", err)
 	}
 	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "RSA PUBLIC KEY",
@@ -35,12 +35,12 @@ func generateKeys(outDir string) error {
 
 	privateKeyName := filepath.Join(outDir, "private.pem")
 	if err := os.WriteFile(privateKeyName, privateKeyPEM, 0600); err != nil {
-		return err
+		return fmt.Errorf("failed to write private key: %w", err)
 	}
 
 	publicKeyName := filepath.Join(outDir, "public.pem")
 	if err := os.WriteFile(publicKeyName, publicKeyPEM, 0644); err != nil {
-		return err
+		return fmt.Errorf("failed to write public key: %w", err)
 	}
 
 	return nil
