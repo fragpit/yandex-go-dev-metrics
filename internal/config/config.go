@@ -150,16 +150,6 @@ func NewAgentConfig() (*AgentConfig, error) {
 	}
 
 	return cfg, nil
-
-	// return &AgentConfig{
-	// 	LogLevel:       v.GetString("log-level"),
-	// 	SecretKey:      v.GetString("secret-key"),
-	// 	ServerURL:      v.GetString("address"),
-	// 	PollInterval:   v.GetInt("poll-interval"),
-	// 	ReportInterval: v.GetInt("report-interval"),
-	// 	RateLimit:      v.GetInt("rate-limit"),
-	// 	CryptoKey:      v.GetString("crypto-key"),
-	// }, nil
 }
 
 // Debug logs the current agent configuration.
