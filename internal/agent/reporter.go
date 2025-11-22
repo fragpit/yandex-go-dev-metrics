@@ -15,7 +15,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -107,13 +109,27 @@ func (r *Reporter) reportMetrics(
 
 	updateURL := r.serverURL + "/updates/"
 
+	parsedURL, err := url.Parse(r.serverURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse server url: %w", err)
+	}
+
+	ip, err := localIPFor(parsedURL.Hostname())
+	if err != nil {
+		return fmt.Errorf(
+			"failed to get source ip for provided server hostname: %w",
+			err,
+		)
+	}
+
 	client := resty.New()
 	client.
 		SetTimeout(clientPostTimeout).
 		SetRetryCount(3).
 		SetRetryWaitTime(1*time.Second).
 		SetRetryMaxWaitTime(5*time.Second).
-		SetHeader("Content-Type", "application/json")
+		SetHeader("Content-Type", "application/json").
+		OnBeforeRequest(addRealIPHeader(ip.String()))
 
 	if len(r.secretKey) > 0 {
 		client.OnBeforeRequest(checksumRequestMiddleware(r.secretKey))
@@ -298,4 +314,27 @@ func readKey(keyPath string) (*rsa.PublicKey, error) {
 	}
 
 	return publicKey.(*rsa.PublicKey), nil
+}
+
+func addRealIPHeader(ip string) resty.RequestMiddleware {
+	return func(c *resty.Client, r *resty.Request) error {
+		r.SetHeader("X-Real-IP", ip)
+
+		return nil
+	}
+}
+
+func localIPFor(serverHost string) (net.IP, error) {
+	conn, err := net.Dial("udp4", net.JoinHostPort(serverHost, "80"))
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	udpAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return nil, fmt.Errorf("unexpected local addr type %T", conn.LocalAddr())
+	}
+
+	return udpAddr.IP, nil
 }

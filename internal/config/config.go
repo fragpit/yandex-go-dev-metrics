@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -149,6 +150,10 @@ func NewAgentConfig() (*AgentConfig, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	if !validateURL(cfg.ServerURL) {
+		return nil, fmt.Errorf("failed to validate server url: %s", cfg.ServerURL)
+	}
+
 	return cfg, nil
 }
 
@@ -176,6 +181,7 @@ type ServerConfig struct {
 	AuditFile     string        `mapstructure:"audit_file"`
 	AuditURL      string        `mapstructure:"audit_url"`
 	CryptoKey     string        `mapstructure:"crypto_key"`
+	TrustedSubnet string        `mapstructure:"trusted_subnet"`
 }
 
 func NewServerConfig() (*ServerConfig, error) {
@@ -244,6 +250,13 @@ func NewServerConfig() (*ServerConfig, error) {
 		"path to config file (по умолчанию не используется)",
 	)
 
+	pflag.StringP(
+		"trusted-subnet",
+		"t",
+		"",
+		"доверенная подсеть (по умолчанию не ипользуется)",
+	)
+
 	pflag.Parse()
 
 	if *cfgPath != "" {
@@ -268,6 +281,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	v.RegisterAlias("audit_file", "audit-file")
 	v.RegisterAlias("audit_url", "audit-url")
 	v.RegisterAlias("crypto_key", "crypto-key")
+	v.RegisterAlias("trusted_subnet", "trusted-subnet")
 
 	cfg := &ServerConfig{}
 	if err := v.Unmarshal(&cfg); err != nil {
@@ -276,6 +290,10 @@ func NewServerConfig() (*ServerConfig, error) {
 
 	if cfg.AuditURL != "" && !validateURL(cfg.AuditURL) {
 		return nil, fmt.Errorf("invalid audit URL: %s", cfg.AuditURL)
+	}
+
+	if cfg.TrustedSubnet != "" && !validateSubnet(cfg.TrustedSubnet) {
+		return nil, fmt.Errorf("failed to parse subnet: %s", cfg.TrustedSubnet)
 	}
 
 	return cfg, nil
@@ -294,6 +312,7 @@ func (c *ServerConfig) Debug() {
 		slog.String("audit_file", c.AuditFile),
 		slog.String("audit_url", c.AuditURL),
 		slog.String("crypto_key", c.CryptoKey),
+		slog.String("trusted_subnet", c.TrustedSubnet),
 	)
 }
 
@@ -316,4 +335,9 @@ func validateURL(rawURL string) bool {
 	}
 
 	return true
+}
+
+func validateSubnet(subnet string) bool {
+	_, _, err := net.ParseCIDR(subnet)
+	return err == nil
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -233,6 +234,44 @@ func (rt *Router) checksumMiddleware(h http.Handler) http.Handler {
 		}
 
 		r.Body = io.NopCloser(bytes.NewReader(body))
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+func (rt *Router) verifySubnetMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIPStr := r.Header.Get("X-Real-IP")
+		if clientIPStr == "" {
+			rt.logger.Error("x-real-ip header is nil or unset")
+			http.Error(
+				w,
+				"x-real-ip header is nil or unset",
+				http.StatusBadRequest,
+			)
+			return
+		}
+
+		clientIP := net.ParseIP(clientIPStr)
+		if clientIP == nil {
+			rt.logger.Error("failed to parse x-real-ip", "ip", clientIPStr)
+			http.Error(
+				w,
+				"failed to parse x-real-ip",
+				http.StatusBadRequest,
+			)
+			return
+		}
+
+		if !rt.trustedSubnet.Contains(clientIP) {
+			rt.logger.Warn("access forbidden for ip", "client_ip", clientIP)
+			http.Error(
+				w,
+				http.StatusText(http.StatusForbidden),
+				http.StatusForbidden,
+			)
+			return
+		}
 
 		h.ServeHTTP(w, r)
 	})

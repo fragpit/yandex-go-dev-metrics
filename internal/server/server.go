@@ -127,6 +127,7 @@ func Run() error {
 		st,
 		[]byte(cfg.SecretKey),
 		cfg.CryptoKey,
+		cfg.TrustedSubnet,
 	)
 	if err != nil {
 		return err

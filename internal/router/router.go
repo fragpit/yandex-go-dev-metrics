@@ -31,12 +31,13 @@ const apiShutdownTimeout = 5 * time.Second
 
 // Router handles HTTP requests and routes them to appropriate handlers.
 type Router struct {
-	repo       repository.Repository
-	router     http.Handler
-	logger     *slog.Logger
-	auditor    *audit.Auditor
-	secretKey  []byte
-	privateKey *rsa.PrivateKey
+	repo          repository.Repository
+	router        http.Handler
+	logger        *slog.Logger
+	auditor       *audit.Auditor
+	secretKey     []byte
+	privateKey    *rsa.PrivateKey
+	trustedSubnet *net.IPNet
 }
 
 // NewRouter creates a new Router instance.
@@ -46,6 +47,7 @@ func NewRouter(
 	st repository.Repository,
 	key []byte,
 	cryptoKey string,
+	trustedSubnet string,
 ) (*Router, error) {
 	r := &Router{
 		logger:    l,
@@ -67,6 +69,18 @@ func NewRouter(
 		r.privateKey = privateKey
 	}
 
+	if len(trustedSubnet) > 0 {
+		_, trustedSubnet, err := net.ParseCIDR(trustedSubnet)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to parse trusted subnet %s: %w",
+				trustedSubnet,
+				err,
+			)
+		}
+		r.trustedSubnet = trustedSubnet
+	}
+
 	r.router = r.initRoutes()
 
 	return r, nil
@@ -85,6 +99,10 @@ func (rt *Router) initRoutes() http.Handler {
 
 	r.Use(rt.slogMiddleware)
 	r.Use(compressor.Handler)
+
+	if rt.trustedSubnet != nil {
+		r.Use(rt.verifySubnetMiddleware)
+	}
 
 	r.Get("/", rt.rootHandler)
 	r.Get("/ping", rt.pingHandler)
