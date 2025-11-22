@@ -5,12 +5,18 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
@@ -31,6 +37,7 @@ type Reporter struct {
 	serverURL string
 	secretKey []byte
 	rateLimit int
+	cryptoKey string
 }
 
 // NewReporter creates a new Reporter instance.
@@ -40,6 +47,7 @@ func NewReporter(
 	serverURL string,
 	secretKey []byte,
 	rateLimit int,
+	cryptoKey string,
 ) *Reporter {
 	return &Reporter{
 		l:         l,
@@ -47,6 +55,7 @@ func NewReporter(
 		serverURL: serverURL,
 		secretKey: secretKey,
 		rateLimit: rateLimit,
+		cryptoKey: cryptoKey,
 	}
 }
 
@@ -104,12 +113,16 @@ func (r *Reporter) reportMetrics(
 		SetRetryCount(3).
 		SetRetryWaitTime(1*time.Second).
 		SetRetryMaxWaitTime(5*time.Second).
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Content-Encoding", "gzip").
-		OnBeforeRequest(gzipRequestMiddleware())
+		SetHeader("Content-Type", "application/json")
 
 	if len(r.secretKey) > 0 {
 		client.OnBeforeRequest(checksumRequestMiddleware(r.secretKey))
+	}
+
+	if len(r.cryptoKey) > 0 {
+		client.OnBeforeRequest(encryptRequestMiddleware(r.cryptoKey))
+	} else {
+		client.OnBeforeRequest(gzipRequestMiddleware())
 	}
 
 	var metrics []*model.Metrics
@@ -247,4 +260,42 @@ func checksumRequestMiddleware(key []byte) resty.RequestMiddleware {
 
 		return nil
 	}
+}
+
+func encryptRequestMiddleware(keyPath string) resty.RequestMiddleware {
+	return func(c *resty.Client, r *resty.Request) error {
+		publicKey, err := readKey(keyPath)
+		if err != nil {
+			return fmt.Errorf("failed to read key: %w", err)
+		}
+
+		encBody, err := rsa.EncryptPKCS1v15(rand.Reader, publicKey, r.Body.([]byte))
+		if err != nil {
+			return fmt.Errorf("failed to encrypt body: %w", err)
+		}
+
+		r.Body = encBody
+		r.SetHeader("X-Encrypted", "rsa")
+
+		return nil
+	}
+}
+
+func readKey(keyPath string) (*rsa.PublicKey, error) {
+	publicKeyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	publicKeyPEM, _ := pem.Decode(publicKeyBytes)
+	if publicKeyPEM == nil {
+		return nil, errors.New("invalid key format")
+	}
+
+	publicKey, err := x509.ParsePKIXPublicKey(publicKeyPEM.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key: %w", err)
+	}
+
+	return publicKey.(*rsa.PublicKey), nil
 }

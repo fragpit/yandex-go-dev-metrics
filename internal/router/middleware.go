@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"io"
@@ -145,6 +147,47 @@ func (rt *Router) decompressMiddleware(h http.Handler) http.Handler {
 			r.Body = io.NopCloser(bytes.NewReader(decompressed))
 			r.Header.Del("Content-Encoding")
 			r.ContentLength = int64(len(decompressed))
+		}
+
+		h.ServeHTTP(w, r)
+	})
+}
+
+func (rt *Router) decryptMiddleware(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Encrypted") != "" {
+			if r.ContentLength == 0 {
+				rt.logger.Warn("empty body received")
+				r.Header.Del("X-Encrypted")
+				h.ServeHTTP(w, r)
+				return
+			}
+
+			data, err := io.ReadAll(r.Body)
+			if err != nil {
+				rt.logger.Error("failed to read body", slog.Any("error", err))
+				http.Error(
+					w,
+					http.StatusText(http.StatusBadRequest),
+					http.StatusBadRequest,
+				)
+				return
+			}
+
+			decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, rt.privateKey, data)
+			if err != nil {
+				rt.logger.Error("failed to decrypt body", slog.Any("error", err))
+				http.Error(
+					w,
+					http.StatusText(http.StatusBadRequest),
+					http.StatusBadRequest,
+				)
+				return
+			}
+
+			r.Body = io.NopCloser(bytes.NewReader(decrypted))
+			r.Header.Del("X-Encrypted")
+			r.ContentLength = int64(len(decrypted))
 		}
 
 		h.ServeHTTP(w, r)

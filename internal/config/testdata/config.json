@@ -1,0 +1,4 @@
+{
+    "address": "config.local:8080",
+    "poll_interval": "3"
+}

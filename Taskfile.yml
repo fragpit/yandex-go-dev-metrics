@@ -5,13 +5,13 @@ version: '3'
 vars:
   BUILD_DIR: "{{ .ROOT_DIR }}/bin"
 
-# env:
-#   LOG_LEVEL: "debug"
+env:
+  LOG_LEVEL: "debug"
 
 tasks:
   test-cover:
     cmds:
-      - task: generate
+      - go clean -cache -testcache
       - go test
             -covermode=atomic
             -coverpkg=./...
@@ -44,6 +44,9 @@ tasks:
 
   lint-custom:
     cmd: go run cmd/linter/main.go cmd/linter/customanalyzer.go ./...
+
+  create-keys:
+    cmd: go run cmd/keygen/main.go --out-dir {{ .ROOT_DIR }}/contrib/keys
 
   build-dev:
     vars:

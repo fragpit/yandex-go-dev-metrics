@@ -1,7 +1,6 @@
 package config
 
 import (
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -9,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 type envParser[T any] func(string) (T, error)
@@ -52,104 +54,102 @@ func parseBool(s string) (bool, error) {
 	return strconv.ParseBool(s)
 }
 
-// generate:reset
 type AgentConfig struct {
-	LogLevel       string
-	ServerURL      string
-	PollInterval   int
-	ReportInterval int
-	SecretKey      []byte
-	RateLimit      int
+	LogLevel       string `mapstructure:"log_level"`
+	ServerURL      string `mapstructure:"address"`
+	PollInterval   int    `mapstructure:"poll_interval"`
+	ReportInterval int    `mapstructure:"report_interval"`
+	SecretKey      string `mapstructure:"secret_key"`
+	RateLimit      int    `mapstructure:"rate_limit"`
+	CryptoKey      string `mapstructure:"crypto_key"`
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
-	logLevel := flag.String(
-		"log-level",
-		"info",
-		"log level (default: info)",
-	)
+	v := viper.New()
 
-	serverURL := flag.String(
+	pflag.String("log-level", "info", "log level")
+
+	pflag.StringP(
+		"address",
 		"a",
-		"localhost:8080",
-		"address to connect to server (по умолчанию http://localhost:8080)",
+		"http://localhost:8080",
+		"address to connect to server",
 	)
 
-	pollInterval := flag.Int(
+	pflag.IntP(
+		"poll-interval",
 		"p",
 		2,
-		"частота опроса метрик из пакета runtime (по умолчанию 2 секунды)",
+		"частота опроса метрик из пакета runtime в секундах",
 	)
 
-	reportInterval := flag.Int(
+	pflag.IntP(
+		"report-interval",
 		"r",
 		10,
-		"частота отправки метрик на сервер (по умолчанию 10 секунд)",
+		"частота отправки метрик на сервер в секундах",
 	)
 
-	secretKey := flag.String(
+	pflag.StringP(
+		"secret-key",
 		"k",
 		"",
 		"секретный ключ для подписи сообщений",
 	)
 
-	rateLimit := flag.Int(
+	pflag.IntP(
+		"rate-limit",
 		"l",
 		1,
-		"лимит одновременных запросов к серверу (по умолчанию 1)",
+		"лимит одновременных запросов к серверу",
 	)
 
-	flag.Parse()
-
-	finalLogLevel, err := getEnvOrDefault("LOG_LEVEL", *logLevel, parseString)
-	if err != nil {
-		return nil, err
-	}
-
-	finalServerURL, err := getEnvOrDefault("ADDRESS", *serverURL, parseString)
-	if err != nil {
-		return nil, err
-	}
-	if !strings.HasPrefix(finalServerURL, "http://") {
-		finalServerURL = "http://" + finalServerURL
-	}
-
-	finalPollInterval, err := getEnvOrDefault(
-		"POLL_INTERVAL",
-		*pollInterval,
-		parseInt,
+	pflag.String(
+		"crypto-key",
+		"",
+		"путь к публичному ключу для шифрования сообщений",
 	)
-	if err != nil {
-		return nil, err
-	}
 
-	finalReportInterval, err := getEnvOrDefault(
-		"REPORT_INTERVAL",
-		*reportInterval,
-		parseInt,
+	cfgPath := pflag.StringP(
+		"config",
+		"c",
+		"",
+		"path to config file (по умолчанию не используется)",
 	)
-	if err != nil {
-		return nil, err
+
+	pflag.Parse()
+
+	if *cfgPath != "" {
+		v.SetConfigFile(*cfgPath)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("failed to read config: %w", err)
+		}
 	}
 
-	finalSecretKey, err := getEnvOrDefault("KEY", *secretKey, parseString)
-	if err != nil {
-		return nil, err
+	if err := v.BindPFlags(pflag.CommandLine); err != nil {
+		return nil, fmt.Errorf("failed to bind cmd flags: %w", err)
 	}
 
-	finalRateLimit, err := getEnvOrDefault("RATE_LIMIT", *rateLimit, parseInt)
-	if err != nil {
-		return nil, err
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+
+	v.RegisterAlias("log_level", "log-level")
+	v.RegisterAlias("poll_interval", "poll-interval")
+	v.RegisterAlias("report_interval", "report-interval")
+	v.RegisterAlias("secret_key", "secret-key")
+	v.RegisterAlias("rate_limit", "rate-limit")
+	v.RegisterAlias("crypto_key", "crypto-key")
+
+	if !strings.HasPrefix(v.GetString("address"), "http://") {
+		v.Set("address", "http://"+v.GetString("address"))
 	}
 
-	return &AgentConfig{
-		LogLevel:       finalLogLevel,
-		ServerURL:      finalServerURL,
-		PollInterval:   finalPollInterval,
-		ReportInterval: finalReportInterval,
-		SecretKey:      []byte(finalSecretKey),
-		RateLimit:      finalRateLimit,
-	}, nil
+	cfg := &AgentConfig{}
+	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	return cfg, nil
 }
 
 // Debug logs the current agent configuration.
@@ -160,149 +160,125 @@ func (c *AgentConfig) Debug() {
 		slog.String("server_url", c.ServerURL),
 		slog.Int("poll_interval", c.PollInterval),
 		slog.Int("report_interval", c.ReportInterval),
+		slog.Int("rate_limit", c.RateLimit),
+		slog.String("crypto_key", c.CryptoKey),
 	)
 }
 
-// generate:reset
 type ServerConfig struct {
-	LogLevel      string
-	Address       string
-	StoreInterval time.Duration
-	FileStorePath string
-	Restore       bool
-	DatabaseDSN   string
-	SecretKey     []byte
-	AuditFile     string
-	AuditURL      string
+	LogLevel      string        `mapstructure:"log_level"`
+	Address       string        `mapstructure:"address"`
+	StoreInterval time.Duration `mapstructure:"store_interval"`
+	FileStorePath string        `mapstructure:"file_storage_path"`
+	Restore       bool          `mapstructure:"restore"`
+	DatabaseDSN   string        `mapstructure:"database_dsn"`
+	SecretKey     string        `mapstructure:"secret_key"`
+	AuditFile     string        `mapstructure:"audit_file"`
+	AuditURL      string        `mapstructure:"audit_url"`
+	CryptoKey     string        `mapstructure:"crypto_key"`
 }
 
 func NewServerConfig() (*ServerConfig, error) {
-	logLevel := flag.String(
-		"log-level",
-		"info",
-		"log level (default: info)",
-	)
+	v := viper.New()
 
-	address := flag.String(
-		"a",
-		"localhost:8080",
-		"address to listen on (по умолчанию localhost:8080)",
-	)
+	pflag.String("log-level", "info", "log level")
+	pflag.StringP("address", "a", "localhost:8080", "address to listen on")
 
-	storeInterval := flag.Int(
+	pflag.DurationP(
+		"store-interval",
 		"i",
-		300,
-		"частота сохранения метрик в файл в секундах (по умолчанию 300 секунд)",
+		300*time.Second,
+		"частота сохранения метрик в файл в секундах",
 	)
 
-	fileStorePath := flag.String(
+	pflag.StringP(
+		"file-storage-path",
 		"f",
 		"/tmp/metrics.json",
-		"путь к файлу для сохранения метрик (по умолчанию /tmp/metrics.json)",
+		"путь к файлу для сохранения метрик",
 	)
 
-	restore := flag.Bool(
+	pflag.BoolP(
+		"restore",
 		"r",
 		false,
-		"восстанавливать метрики из файла при запуске сервера (по умолчанию false)",
+		"восстанавливать метрики из файла при запуске сервера",
 	)
 
-	dbDSN := flag.String(
+	pflag.StringP(
+		"database-dsn",
 		"d",
 		"",
-		"строка подключения к БД, если не указана используется memory storage (по умолчанию пусто)",
+		"строка подключения к БД, если не указана используется memory storage",
 	)
 
-	secretKey := flag.String(
+	pflag.StringP(
+		"secret-key",
 		"k",
 		"",
 		"секретный ключ для подписи сообщений",
 	)
 
-	auditFile := flag.String(
+	pflag.String(
 		"audit-file",
 		"",
 		"файл для записи аудита (по умолчанию не используется)",
 	)
 
-	auditURL := flag.String(
+	pflag.String(
 		"audit-url",
 		"",
 		"URL для отправки аудита (по умолчанию не используется)",
 	)
 
-	flag.Parse()
-
-	finalLogLevel, err := getEnvOrDefault("LOG_LEVEL", *logLevel, parseString)
-	if err != nil {
-		return nil, err
-	}
-
-	finalAddress, err := getEnvOrDefault("ADDRESS", *address, parseString)
-	if err != nil {
-		return nil, err
-	}
-
-	finalStoreInterval, err := getEnvOrDefault(
-		"STORE_INTERVAL",
-		*storeInterval,
-		parseInt,
+	pflag.String(
+		"crypto-key",
+		"",
+		"путь к публичному ключу для шифрования сообщений",
 	)
-	if err != nil {
-		return nil, err
-	}
-	storeIntervalDuration := time.Duration(finalStoreInterval) * time.Second
 
-	finalFileStorePath, err := getEnvOrDefault(
-		"FILE_STORAGE_PATH",
-		*fileStorePath,
-		parseString,
+	cfgPath := pflag.StringP(
+		"config",
+		"c",
+		"",
+		"path to config file (по умолчанию не используется)",
 	)
-	if err != nil {
-		return nil, err
+
+	pflag.Parse()
+
+	if *cfgPath != "" {
+		v.SetConfigFile(*cfgPath)
+		if err := v.ReadInConfig(); err != nil {
+			return nil, fmt.Errorf("failed to read config: %w", err)
+		}
 	}
 
-	finalRestore, err := getEnvOrDefault("RESTORE", *restore, parseBool)
-	if err != nil {
-		return nil, err
+	if err := v.BindPFlags(pflag.CommandLine); err != nil {
+		return nil, fmt.Errorf("failed to bind cmd flags: %w", err)
 	}
 
-	finalDBDSN, err := getEnvOrDefault("DATABASE_DSN", *dbDSN, parseString)
-	if err != nil {
-		return nil, err
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+
+	v.RegisterAlias("log_level", "log-level")
+	v.RegisterAlias("store_interval", "store-interval")
+	v.RegisterAlias("file_storage_path", "file-storage-path")
+	v.RegisterAlias("database_dsn", "database-dsn")
+	v.RegisterAlias("secret_key", "secret-key")
+	v.RegisterAlias("audit_file", "audit-file")
+	v.RegisterAlias("audit_url", "audit-url")
+	v.RegisterAlias("crypto_key", "crypto-key")
+
+	cfg := &ServerConfig{}
+	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	finalSecretKey, err := getEnvOrDefault("KEY", *secretKey, parseString)
-	if err != nil {
-		return nil, err
+	if cfg.AuditURL != "" && !validateURL(cfg.AuditURL) {
+		return nil, fmt.Errorf("invalid audit URL: %s", cfg.AuditURL)
 	}
 
-	finalAuditFile, err := getEnvOrDefault("AUDIT_FILE", *auditFile, parseString)
-	if err != nil {
-		return nil, err
-	}
-
-	finalAuditURL, err := getEnvOrDefault("AUDIT_URL", *auditURL, parseString)
-	if err != nil {
-		return nil, err
-	}
-
-	if finalAuditURL != "" && !validateURL(finalAuditURL) {
-		slog.Error("invalid audit URL", slog.String("url", finalAuditURL))
-		return nil, fmt.Errorf("invalid audit URL: %s", finalAuditURL)
-	}
-
-	return &ServerConfig{
-		LogLevel:      finalLogLevel,
-		Address:       finalAddress,
-		StoreInterval: storeIntervalDuration,
-		FileStorePath: finalFileStorePath,
-		Restore:       finalRestore,
-		DatabaseDSN:   finalDBDSN,
-		SecretKey:     []byte(finalSecretKey),
-		AuditFile:     finalAuditFile,
-		AuditURL:      finalAuditURL,
-	}, nil
+	return cfg, nil
 }
 
 // Debug logs the current server configuration.
@@ -317,6 +293,7 @@ func (c *ServerConfig) Debug() {
 		slog.String("database_dsn", c.DatabaseDSN),
 		slog.String("audit_file", c.AuditFile),
 		slog.String("audit_url", c.AuditURL),
+		slog.String("crypto_key", c.CryptoKey),
 	)
 }
 

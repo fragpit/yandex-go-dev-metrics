@@ -23,6 +23,7 @@ func Run() error {
 		context.Background(),
 		syscall.SIGTERM,
 		syscall.SIGINT,
+		syscall.SIGQUIT,
 	)
 	defer cancel()
 
@@ -120,12 +121,16 @@ func Run() error {
 		}()
 	}
 
-	router := router.NewRouter(
+	router, err := router.NewRouter(
 		logger.With("service", "router"),
 		auditor,
 		st,
-		cfg.SecretKey,
+		[]byte(cfg.SecretKey),
+		cfg.CryptoKey,
 	)
+	if err != nil {
+		return err
+	}
 
 	if err := router.Run(ctx, cfg.Address); err != nil {
 		return err

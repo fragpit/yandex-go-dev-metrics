@@ -2,13 +2,18 @@ package router
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	_ "embed"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
-	"runtime"
+	"os"
 	"time"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
@@ -18,16 +23,20 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+//go:embed templates/root.tpl
+var rootTemplate string
+
 // apiShutdownTimeout defines the timeout for graceful shutdown of the API server.
 const apiShutdownTimeout = 5 * time.Second
 
 // Router handles HTTP requests and routes them to appropriate handlers.
 type Router struct {
-	repo      repository.Repository
-	router    http.Handler
-	logger    *slog.Logger
-	auditor   *audit.Auditor
-	secretKey []byte
+	repo       repository.Repository
+	router     http.Handler
+	logger     *slog.Logger
+	auditor    *audit.Auditor
+	secretKey  []byte
+	privateKey *rsa.PrivateKey
 }
 
 // NewRouter creates a new Router instance.
@@ -36,15 +45,31 @@ func NewRouter(
 	a *audit.Auditor,
 	st repository.Repository,
 	key []byte,
-) *Router {
+	cryptoKey string,
+) (*Router, error) {
 	r := &Router{
 		logger:    l,
 		auditor:   a,
 		repo:      st,
 		secretKey: key,
 	}
+
+	if len(cryptoKey) > 0 {
+		privateKey, err := readKey(cryptoKey)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to read private key from file %s: %w",
+				cryptoKey,
+				err,
+			)
+		}
+
+		r.privateKey = privateKey
+	}
+
 	r.router = r.initRoutes()
-	return r
+
+	return r, nil
 }
 
 // initRoutes initializes the HTTP routes and middleware.
@@ -80,7 +105,13 @@ func (rt *Router) initRoutes() http.Handler {
 		if len(rt.secretKey) > 0 {
 			r.Use(rt.checksumMiddleware)
 		}
+
 		r.Use(rt.decompressMiddleware)
+
+		if rt.privateKey != nil {
+			r.Use(rt.decryptMiddleware)
+		}
+
 		r.Post("/", rt.updatesHandler)
 	})
 
@@ -146,10 +177,7 @@ func (rt Router) rootHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, filename, _, _ := runtime.Caller(0)
-	templatePath := filepath.Join(filepath.Dir(filename), "templates", "root.tpl")
-
-	tpl, err := template.ParseFiles(templatePath)
+	tpl, err := template.New("root").Parse(rootTemplate)
 	if err != nil {
 		rt.logger.Error("template parse error", slog.Any("error", err))
 		http.Error(
@@ -483,4 +511,23 @@ func getClientIP(ipPort string) string {
 		return ipPort
 	}
 	return ip
+}
+
+func readKey(keyPath string) (*rsa.PrivateKey, error) {
+	privateKeyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	privateKeyPEM, _ := pem.Decode(privateKeyBytes)
+	if privateKeyPEM == nil {
+		return nil, errors.New("invalid key format")
+	}
+
+	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyPEM.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key: %w", err)
+	}
+
+	return privateKey, nil
 }

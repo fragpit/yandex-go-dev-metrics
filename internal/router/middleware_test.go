@@ -362,3 +362,64 @@ func TestRouter_slogMiddleware_WithDebugLogging(t *testing.T) {
 		})
 	}
 }
+
+func TestReadKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		keyPath string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid RSA key",
+			keyPath: "testdata/private.pem",
+			wantErr: false,
+		},
+		{
+			name:    "file not found",
+			keyPath: "testdata/nonexistent_key.pem",
+			wantErr: true,
+			errMsg:  "failed to read file",
+		},
+		{
+			name:    "invalid PEM format",
+			keyPath: "testdata/invalid_key.pem",
+			wantErr: true,
+			errMsg:  "invalid key format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key, err := readKey(tt.keyPath)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, key)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, key)
+			}
+		})
+	}
+}
+
+// func TestRouter_decryptMiddleware(t *testing.T) {
+// 	tests := []struct {
+// 		name string
+// 	}{
+// 		{
+// 			name: "success",
+// 		},
+// 	}
+
+// 	for _, tt := range tests {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			var req *http.Request
+
+// 			req = httptest.NewRequest(http.MethodPost, "/updates")
+// 		})
+// 	}
+
+// }

@@ -12,6 +12,7 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
 	mocks "github.com/fragpit/yandex-go-dev-metrics/internal/mocks/repository"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -50,7 +51,8 @@ func BenchmarkRouter_updatesHandler(b *testing.B) {
 		Return(nil).
 		AnyTimes()
 
-	router := NewRouter(logger, auditor, storeMock, nil)
+	router, err := NewRouter(logger, auditor, storeMock, nil, "")
+	require.NoError(b, err)
 
 	body, _ := json.Marshal(metrics)
 

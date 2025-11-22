@@ -1,12 +1,12 @@
 package config
 
 import (
-	"flag"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +46,7 @@ func TestAgentConfig_Debug(t *testing.T) {
 		ServerURL:      "http://localhost:8080",
 		PollInterval:   2,
 		ReportInterval: 10,
-		SecretKey:      []byte("test"),
+		SecretKey:      "test",
 		RateLimit:      1,
 	}
 
@@ -60,7 +60,7 @@ func TestServerConfig_Debug(t *testing.T) {
 		FileStorePath: "/tmp/metrics.json",
 		Restore:       true,
 		DatabaseDSN:   "",
-		SecretKey:     []byte("test"),
+		SecretKey:     "test",
 	}
 
 	cfg.Debug()
@@ -68,7 +68,8 @@ func TestServerConfig_Debug(t *testing.T) {
 
 func TestNewAgentConfig_Defaults(t *testing.T) {
 	// Сбрасываем флаги и переменные окружения
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	os.Clearenv()
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -81,22 +82,25 @@ func TestNewAgentConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "http://localhost:8080", cfg.ServerURL)
 	assert.Equal(t, 2, cfg.PollInterval)
 	assert.Equal(t, 10, cfg.ReportInterval)
+	assert.Equal(t, "", cfg.SecretKey)
 	assert.Equal(t, 1, cfg.RateLimit)
+	assert.Equal(t, "", cfg.CryptoKey)
 }
 
 func TestNewAgentConfig_WithFlags(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
 		"cmd",
-		"-log-level", "debug",
+		"--log-level", "debug",
 		"-a", "localhost:9090",
 		"-p", "5",
 		"-r", "20",
-		"-k", "secret123",
 		"-l", "3",
+		"-k", "c2VjcmV0MTIz",
+		"--crypto-key", "/tmp/test.pem",
 	}
 
 	cfg, err := NewAgentConfig()
@@ -107,12 +111,13 @@ func TestNewAgentConfig_WithFlags(t *testing.T) {
 	assert.Equal(t, "http://localhost:9090", cfg.ServerURL)
 	assert.Equal(t, 5, cfg.PollInterval)
 	assert.Equal(t, 20, cfg.ReportInterval)
-	assert.Equal(t, []byte("secret123"), cfg.SecretKey)
 	assert.Equal(t, 3, cfg.RateLimit)
+	assert.Equal(t, "c2VjcmV0MTIz", cfg.SecretKey)
+	assert.Equal(t, "/tmp/test.pem", cfg.CryptoKey)
 }
 
 func TestNewAgentConfig_WithEnvVars(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -122,8 +127,9 @@ func TestNewAgentConfig_WithEnvVars(t *testing.T) {
 	_ = os.Setenv("ADDRESS", "example.com:8080")
 	_ = os.Setenv("POLL_INTERVAL", "7")
 	_ = os.Setenv("REPORT_INTERVAL", "15")
-	_ = os.Setenv("KEY", "envkey456")
+	_ = os.Setenv("SECRET_KEY", "envkey456")
 	_ = os.Setenv("RATE_LIMIT", "5")
+	_ = os.Setenv("CRYPTO_KEY", "/tmp/test.pem")
 
 	defer func() {
 		_ = os.Unsetenv("LOG_LEVEL")
@@ -142,37 +148,84 @@ func TestNewAgentConfig_WithEnvVars(t *testing.T) {
 	assert.Equal(t, "http://example.com:8080", cfg.ServerURL)
 	assert.Equal(t, 7, cfg.PollInterval)
 	assert.Equal(t, 15, cfg.ReportInterval)
-	assert.Equal(t, []byte("envkey456"), cfg.SecretKey)
+	assert.Equal(t, "envkey456", cfg.SecretKey)
 	assert.Equal(t, 5, cfg.RateLimit)
+	assert.Equal(t, "/tmp/test.pem", cfg.CryptoKey)
 }
 
-func TestNewAgentConfig_EnvOverridesFlags(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
+func TestNewAgentConfig_Precedence(t *testing.T) {
+	t.Run("flags must win precedence", func(t *testing.T) {
+		pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
+		oldArgs := os.Args
+		defer func() { os.Args = oldArgs }()
 
-	os.Args = []string{
-		"cmd",
-		"-a", "localhost:9090",
-		"-p", "5",
-	}
+		os.Args = []string{
+			"cmd",
+			"-c", "testdata/config.json",
+			"-a", "flags.local:8080",
+			"-p", "1",
+		}
 
-	_ = os.Setenv("ADDRESS", "override.com:7070")
-	_ = os.Setenv("POLL_INTERVAL", "12")
-	defer func() {
-		_ = os.Unsetenv("ADDRESS")
-		_ = os.Unsetenv("POLL_INTERVAL")
-	}()
+		_ = os.Setenv("ADDRESS", "env.local:8080")
+		_ = os.Setenv("POLL_INTERVAL", "4")
 
-	cfg, err := NewAgentConfig()
-	require.NoError(t, err)
+		defer func() {
+			_ = os.Unsetenv("ADDRESS")
+			_ = os.Unsetenv("POLL_INTERVAL")
+		}()
 
-	assert.Equal(t, "http://override.com:7070", cfg.ServerURL)
-	assert.Equal(t, 12, cfg.PollInterval)
+		cfg, err := NewAgentConfig()
+		require.NoError(t, err)
+
+		assert.Equal(t, "http://flags.local:8080", cfg.ServerURL)
+		assert.Equal(t, 1, cfg.PollInterval)
+	})
+
+	t.Run("env must win precedence over config", func(t *testing.T) {
+		pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
+		oldArgs := os.Args
+		defer func() { os.Args = oldArgs }()
+
+		os.Args = []string{
+			"cmd",
+			"-c", "testdata/config.json",
+		}
+
+		_ = os.Setenv("ADDRESS", "env.local:8080")
+		_ = os.Setenv("POLL_INTERVAL", "4")
+
+		defer func() {
+			_ = os.Unsetenv("ADDRESS")
+			_ = os.Unsetenv("POLL_INTERVAL")
+		}()
+
+		cfg, err := NewAgentConfig()
+		require.NoError(t, err)
+
+		assert.Equal(t, "http://env.local:8080", cfg.ServerURL)
+		assert.Equal(t, 4, cfg.PollInterval)
+	})
+
+	t.Run("config must win precedence over defaults", func(t *testing.T) {
+		pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
+		oldArgs := os.Args
+		defer func() { os.Args = oldArgs }()
+
+		os.Args = []string{
+			"cmd",
+			"-c", "testdata/config.json",
+		}
+
+		cfg, err := NewAgentConfig()
+		require.NoError(t, err)
+
+		assert.Equal(t, "http://config.local:8080", cfg.ServerURL)
+		assert.Equal(t, 3, cfg.PollInterval)
+	})
 }
 
 func TestNewAgentConfig_InvalidPollInterval(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -183,11 +236,11 @@ func TestNewAgentConfig_InvalidPollInterval(t *testing.T) {
 	cfg, err := NewAgentConfig()
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "POLL_INTERVAL")
+	assert.Contains(t, err.Error(), "failed to unmarshal config")
 }
 
 func TestNewAgentConfig_InvalidReportInterval(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -198,11 +251,11 @@ func TestNewAgentConfig_InvalidReportInterval(t *testing.T) {
 	cfg, err := NewAgentConfig()
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "REPORT_INTERVAL")
+	assert.Contains(t, err.Error(), "failed to unmarshal config")
 }
 
 func TestNewAgentConfig_InvalidRateLimit(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -213,11 +266,11 @@ func TestNewAgentConfig_InvalidRateLimit(t *testing.T) {
 	cfg, err := NewAgentConfig()
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "RATE_LIMIT")
+	assert.Contains(t, err.Error(), "failed to unmarshal config")
 }
 
 func TestNewServerConfig_Defaults(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -235,21 +288,22 @@ func TestNewServerConfig_Defaults(t *testing.T) {
 }
 
 func TestNewServerConfig_WithFlags(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 
 	os.Args = []string{
 		"cmd",
-		"-log-level", "debug",
+		"--log-level", "debug",
 		"-a", "0.0.0.0:9090",
-		"-i", "60",
+		"-i", "60s",
 		"-f", "/var/metrics.json",
 		"-r",
 		"-d", "postgres://user:pass@localhost/db",
 		"-k", "serverkey",
-		"-audit-file", "/tmp/audit.log",
-		"-audit-url", "http://audit.example.com",
+		"--audit-file", "/tmp/audit.log",
+		"--audit-url", "http://audit.example.com",
+		"--crypto-key", "/tmp/test.pem",
 	}
 
 	cfg, err := NewServerConfig()
@@ -262,24 +316,25 @@ func TestNewServerConfig_WithFlags(t *testing.T) {
 	assert.Equal(t, "/var/metrics.json", cfg.FileStorePath)
 	assert.True(t, cfg.Restore)
 	assert.Equal(t, "postgres://user:pass@localhost/db", cfg.DatabaseDSN)
-	assert.Equal(t, []byte("serverkey"), cfg.SecretKey)
+	assert.Equal(t, "serverkey", cfg.SecretKey)
 	assert.Equal(t, "/tmp/audit.log", cfg.AuditFile)
 	assert.Equal(t, "http://audit.example.com", cfg.AuditURL)
+	assert.Equal(t, "/tmp/test.pem", cfg.CryptoKey)
 }
 
 func TestNewServerConfig_WithEnvVars(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
 
 	_ = os.Setenv("LOG_LEVEL", "error")
 	_ = os.Setenv("ADDRESS", "0.0.0.0:3000")
-	_ = os.Setenv("STORE_INTERVAL", "120")
+	_ = os.Setenv("STORE_INTERVAL", "120s")
 	_ = os.Setenv("FILE_STORAGE_PATH", "/data/metrics.json")
 	_ = os.Setenv("RESTORE", "true")
 	_ = os.Setenv("DATABASE_DSN", "postgres://localhost/mydb")
-	_ = os.Setenv("KEY", "envserverkey")
+	_ = os.Setenv("SECRET_KEY", "envserverkey")
 	_ = os.Setenv("AUDIT_FILE", "/var/log/audit.log")
 	_ = os.Setenv("AUDIT_URL", "https://audit.example.com/api")
 
@@ -290,7 +345,7 @@ func TestNewServerConfig_WithEnvVars(t *testing.T) {
 		_ = os.Unsetenv("FILE_STORAGE_PATH")
 		_ = os.Unsetenv("RESTORE")
 		_ = os.Unsetenv("DATABASE_DSN")
-		_ = os.Unsetenv("KEY")
+		_ = os.Unsetenv("SECRET_KEY")
 		_ = os.Unsetenv("AUDIT_FILE")
 		_ = os.Unsetenv("AUDIT_URL")
 	}()
@@ -305,13 +360,13 @@ func TestNewServerConfig_WithEnvVars(t *testing.T) {
 	assert.Equal(t, "/data/metrics.json", cfg.FileStorePath)
 	assert.True(t, cfg.Restore)
 	assert.Equal(t, "postgres://localhost/mydb", cfg.DatabaseDSN)
-	assert.Equal(t, []byte("envserverkey"), cfg.SecretKey)
+	assert.Equal(t, "envserverkey", cfg.SecretKey)
 	assert.Equal(t, "/var/log/audit.log", cfg.AuditFile)
 	assert.Equal(t, "https://audit.example.com/api", cfg.AuditURL)
 }
 
 func TestNewServerConfig_InvalidStoreInterval(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -322,11 +377,11 @@ func TestNewServerConfig_InvalidStoreInterval(t *testing.T) {
 	cfg, err := NewServerConfig()
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "STORE_INTERVAL")
+	assert.Contains(t, err.Error(), "failed to unmarshal config")
 }
 
 func TestNewServerConfig_InvalidRestore(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -337,11 +392,11 @@ func TestNewServerConfig_InvalidRestore(t *testing.T) {
 	cfg, err := NewServerConfig()
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
-	assert.Contains(t, err.Error(), "RESTORE")
+	assert.Contains(t, err.Error(), "failed to unmarshal config")
 }
 
 func TestNewServerConfig_InvalidAuditURL(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}
@@ -356,7 +411,7 @@ func TestNewServerConfig_InvalidAuditURL(t *testing.T) {
 }
 
 func TestNewServerConfig_EmptyAuditURL(t *testing.T) {
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd"}

@@ -23,6 +23,7 @@ func Run() error {
 		context.Background(),
 		syscall.SIGTERM,
 		syscall.SIGINT,
+		syscall.SIGQUIT,
 	)
 	defer cancel()
 
@@ -88,8 +89,9 @@ func Run() error {
 		logger.With("service", "reporter"),
 		st,
 		cfg.ServerURL,
-		cfg.SecretKey,
+		[]byte(cfg.SecretKey),
 		cfg.RateLimit,
+		cfg.CryptoKey,
 	)
 	wg.Add(1)
 	go func() {
