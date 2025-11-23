@@ -12,12 +12,12 @@ import (
 var _ Poller = (*RuntimePoller)(nil)
 
 type RuntimePoller struct {
-	l *slog.Logger
+	logger *slog.Logger
 }
 
-func NewRuntimePoller(l *slog.Logger) *RuntimePoller {
+func NewRuntimePoller(logger *slog.Logger) *RuntimePoller {
 	return &RuntimePoller{
-		l: l,
+		logger: logger,
 	}
 }
 
@@ -25,7 +25,7 @@ func (p *RuntimePoller) PollOnce(
 	ctx context.Context,
 	out chan<- model.Metric,
 ) error {
-	p.l.Info("starting poller")
+	p.logger.Info("starting poller")
 
 	var mstat runtime.MemStats
 	runtime.ReadMemStats(&mstat)
@@ -66,7 +66,7 @@ func (p *RuntimePoller) PollOnce(
 
 	for _, m := range metrics {
 		if err := registerMetric(out, m.tp, m.name, m.value); err != nil {
-			p.l.Error("failed to register metric",
+			p.logger.Error("failed to register metric",
 				slog.String("name", m.name),
 				slog.Any("error", err))
 			return fmt.Errorf("failed to register metric: %w", err)

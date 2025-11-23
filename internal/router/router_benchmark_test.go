@@ -9,11 +9,12 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
 	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
 	mocks "github.com/fragpit/yandex-go-dev-metrics/internal/mocks/repository"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 )
 
 func BenchmarkRouter_updatesHandler(b *testing.B) {

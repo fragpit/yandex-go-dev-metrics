@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,11 +12,13 @@ import (
 	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/cacher"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/config"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/grpcapi"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/router"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/postgresql"
+	"golang.org/x/sync/errgroup"
 )
 
 func Run() error {
@@ -49,14 +52,15 @@ func Run() error {
 	}))
 	slog.SetDefault(logger)
 
-	var st repository.Repository
+	var repo repository.Repository
 	if cfg.DatabaseDSN != "" {
-		if st, err = postgresql.NewStorage(ctx, cfg.DatabaseDSN); err != nil {
+		if repo, err = postgresql.NewStorage(ctx, cfg.DatabaseDSN); err != nil {
 			return err
 		}
 	} else {
-		st = memstorage.NewMemoryStorage()
+		repo = memstorage.NewMemoryStorage()
 	}
+	defer repo.Close(ctx)
 
 	auditor := audit.NewAuditor()
 
@@ -72,10 +76,12 @@ func Run() error {
 
 	logger.Info("starting server", slog.String("address", cfg.Address))
 
+	eg, ctx := errgroup.WithContext(ctx)
+
 	if cfg.DatabaseDSN == "" {
 		cr := cacher.NewCacher(
 			logger,
-			st,
+			repo,
 			cfg.FileStorePath,
 			cfg.StoreInterval,
 		)
@@ -99,7 +105,7 @@ func Run() error {
 					return err
 				}
 			}
-			if err = st.Initialize(metricsList); err != nil {
+			if err = repo.Initialize(metricsList); err != nil {
 				logger.Error(
 					"failed to restore metrics",
 					slog.String("error", err.Error()),
@@ -113,27 +119,61 @@ func Run() error {
 			)
 		}
 
-		go func() {
+		eg.Go(func() error {
 			if err := cr.Run(ctx); err != nil {
 				logger.Error("cacher error", slog.String("error", err.Error()))
-				cancel()
+				return err
 			}
-		}()
+			return nil
+		})
 	}
 
-	router, err := router.NewRouter(
-		logger.With("service", "router"),
-		auditor,
-		st,
-		[]byte(cfg.SecretKey),
-		cfg.CryptoKey,
-		cfg.TrustedSubnet,
-	)
-	if err != nil {
-		return err
+	if len(cfg.Address) > 0 {
+		router, err := router.NewRouter(
+			logger.With("service", "router"),
+			auditor,
+			repo,
+			[]byte(cfg.SecretKey),
+			cfg.CryptoKey,
+			cfg.TrustedSubnet,
+		)
+		if err != nil {
+			return err
+		}
+
+		eg.Go(func() error {
+			if err := router.Run(ctx, cfg.Address); err != nil {
+				logger.Error("router error", slog.String("error", err.Error()))
+				return err
+			}
+			return nil
+		})
 	}
 
-	if err := router.Run(ctx, cfg.Address); err != nil {
+	if len(cfg.GRPCAddress) > 0 {
+		var opts []grpcapi.Option
+		if cfg.TrustedSubnet != "" {
+			opts = append(opts, grpcapi.WithTrustedSubnet(cfg.TrustedSubnet))
+		}
+		gapi, err := grpcapi.NewGRPCAPI(cfg.GRPCAddress, repo, opts...)
+		if err != nil {
+			logger.Error("failed to init grpc api", slog.String("error", err.Error()))
+			return err
+		}
+
+		eg.Go(func() error {
+			if err := gapi.Run(ctx); err != nil {
+				logger.Error("grpc api error", slog.String("error", err.Error()))
+				return err
+			}
+
+			return nil
+		})
+	}
+
+	err = eg.Wait()
+	if err != nil && !errors.Is(err, context.Canceled) {
+		logger.Error("server shutdown with error", slog.Any("error", err))
 		return err
 	}
 

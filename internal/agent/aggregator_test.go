@@ -24,7 +24,7 @@ func TestNewAggregator(t *testing.T) {
 	aggregator := NewAggregator(logger, repo)
 
 	require.NotNil(t, aggregator)
-	assert.Equal(t, logger, aggregator.l)
+	assert.Equal(t, logger, aggregator.logger)
 	assert.Equal(t, repo, aggregator.repo)
 }
 

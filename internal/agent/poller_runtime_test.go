@@ -19,7 +19,7 @@ func TestNewRuntimePoller(t *testing.T) {
 	)
 	poller := NewRuntimePoller(logger)
 	assert.NotNil(t, poller)
-	assert.NotNil(t, poller.l)
+	assert.NotNil(t, poller.logger)
 }
 
 func TestRuntimePoller_PollOnce(t *testing.T) {

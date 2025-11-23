@@ -15,18 +15,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
-	mocks "github.com/fragpit/yandex-go-dev-metrics/internal/mocks/repository"
-	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
-	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+
+	"github.com/fragpit/yandex-go-dev-metrics/internal/audit"
+	mocks "github.com/fragpit/yandex-go-dev-metrics/internal/mocks/repository"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
+	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 )
 
 func TestRouter_updateMetricJSON(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
+	repo := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
 
@@ -149,7 +150,7 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
 
-			r, err := NewRouter(l, a, st, nil, "", "")
+			r, err := NewRouter(l, a, repo, nil, "", "")
 			require.NoError(t, err)
 
 			r.updateMetricJSON(rr, req)
@@ -159,7 +160,7 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 			assert.Equal(t, tt.want.code, res.StatusCode)
 
 			if tt.want.value != "" {
-				if metric, ok := st.Metrics[tt.body.ID]; ok {
+				if metric, ok := repo.Metrics[tt.body.ID]; ok {
 					assert.Equal(t, tt.want.value, metric.GetValue())
 				}
 			}
@@ -168,7 +169,7 @@ func TestRouter_updateMetricJSON(t *testing.T) {
 }
 
 func TestRouter_getMetricJSON(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
+	repo := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
 
@@ -187,7 +188,7 @@ func TestRouter_getMetricJSON(t *testing.T) {
 	metricsStore = append(metricsStore, m1, m2)
 
 	for _, metric := range metricsStore {
-		err := st.SetOrUpdateMetric(context.Background(), metric)
+		err := repo.SetOrUpdateMetric(context.Background(), metric)
 		require.NoError(t, err)
 	}
 
@@ -277,7 +278,7 @@ func TestRouter_getMetricJSON(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 			rr := httptest.NewRecorder()
 
-			r, err := NewRouter(l, a, st, nil, "", "")
+			r, err := NewRouter(l, a, repo, nil, "", "")
 			require.NoError(t, err)
 
 			r.getMetricJSON(rr, req)
@@ -287,7 +288,7 @@ func TestRouter_getMetricJSON(t *testing.T) {
 			assert.Equal(t, tt.want.code, res.StatusCode)
 
 			if tt.want.value != "" {
-				if metric, ok := st.Metrics[tt.body.ID]; ok {
+				if metric, ok := repo.Metrics[tt.body.ID]; ok {
 					assert.Equal(t, tt.want.value, metric.GetValue())
 				}
 			}
@@ -296,10 +297,10 @@ func TestRouter_getMetricJSON(t *testing.T) {
 }
 
 func TestRouter_TestRoutes(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
+	repo := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
-	r, err := NewRouter(l, a, st, nil, "", "")
+	r, err := NewRouter(l, a, repo, nil, "", "")
 	require.NoError(t, err)
 
 	ts := httptest.NewServer(r.router)
@@ -438,7 +439,7 @@ func TestRouter_TestRoutes(t *testing.T) {
 }
 
 func TestRouter_updateMetric(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
+	repo := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
 
@@ -553,7 +554,7 @@ func TestRouter_updateMetric(t *testing.T) {
 				nil,
 			)
 			rr := httptest.NewRecorder()
-			r, err := NewRouter(l, a, st, nil, "", "")
+			r, err := NewRouter(l, a, repo, nil, "", "")
 			require.NoError(t, err)
 
 			chiCtx := chi.NewRouteContext()
@@ -589,7 +590,7 @@ func TestRouter_updateMetric(t *testing.T) {
 			assert.Equal(t, tt.want.code, res.StatusCode)
 
 			if tt.want.value != "" {
-				if metric, ok := st.Metrics[mValue]; ok {
+				if metric, ok := repo.Metrics[mValue]; ok {
 					assert.Equal(t, tt.want.value, metric.GetValue())
 				}
 			}
@@ -598,7 +599,7 @@ func TestRouter_updateMetric(t *testing.T) {
 }
 
 func TestRouter_getMetric(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
+	repo := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
 
@@ -608,7 +609,7 @@ func TestRouter_getMetric(t *testing.T) {
 	err = metric.SetValue("42")
 	require.NoError(t, err)
 
-	err = st.SetOrUpdateMetric(context.Background(), metric)
+	err = repo.SetOrUpdateMetric(context.Background(), metric)
 	require.NoError(t, err)
 
 	type want struct {
@@ -649,7 +650,7 @@ func TestRouter_getMetric(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 
-			r, err := NewRouter(l, a, st, nil, "", "")
+			r, err := NewRouter(l, a, repo, nil, "", "")
 			require.NoError(t, err)
 
 			chiCtx := chi.NewRouteContext()
@@ -732,10 +733,10 @@ func TestRouter_pingHandler(t *testing.T) {
 }
 
 func TestRouter_updatesHandler(t *testing.T) {
-	st := memstorage.NewMemoryStorage()
+	repo := memstorage.NewMemoryStorage()
 	l := slog.New(slog.DiscardHandler)
 	a := audit.NewAuditor()
-	r, err := NewRouter(l, a, st, nil, "", "")
+	r, err := NewRouter(l, a, repo, nil, "", "")
 	require.NoError(t, err)
 
 	type want struct {
@@ -825,7 +826,7 @@ func TestRouter_updatesHandler(t *testing.T) {
 			if tt.want.code == http.StatusOK && tt.body != nil {
 				for _, m := range tt.body {
 					if m.ID != "" && model.ValidateType(m.MType) {
-						metric, ok := st.Metrics[m.ID]
+						metric, ok := repo.Metrics[m.ID]
 						assert.True(t, ok)
 						if m.MType == string(model.GaugeType) && m.Value != nil {
 							assert.Equal(t, fmt.Sprintf("%v", *m.Value), metric.GetValue())

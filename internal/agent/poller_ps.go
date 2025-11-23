@@ -13,12 +13,12 @@ import (
 var _ Poller = (*CustomPoller)(nil)
 
 type PSPoller struct {
-	l *slog.Logger
+	logger *slog.Logger
 }
 
-func NewPSPoller(l *slog.Logger) *PSPoller {
+func NewPSPoller(logger *slog.Logger) *PSPoller {
 	return &PSPoller{
-		l: l,
+		logger: logger,
 	}
 }
 
@@ -26,7 +26,7 @@ func (p *PSPoller) PollOnce(
 	ctx context.Context,
 	out chan<- model.Metric,
 ) error {
-	p.l.Info("starting poller")
+	p.logger.Info("starting poller")
 
 	memStat, err := mem.VirtualMemory()
 	if err != nil {
@@ -50,7 +50,7 @@ func (p *PSPoller) PollOnce(
 
 	for _, m := range metrics {
 		if err := registerMetric(out, m.tp, m.name, m.value); err != nil {
-			p.l.Error("failed to register metric",
+			p.logger.Error("failed to register metric",
 				slog.String("name", m.name),
 				slog.Any("error", err))
 			return fmt.Errorf("failed to register metric: %w", err)

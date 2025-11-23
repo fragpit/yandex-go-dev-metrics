@@ -42,17 +42,17 @@ type Router struct {
 
 // NewRouter creates a new Router instance.
 func NewRouter(
-	l *slog.Logger,
+	logger *slog.Logger,
 	a *audit.Auditor,
-	st repository.Repository,
+	repo repository.Repository,
 	key []byte,
 	cryptoKey string,
 	trustedSubnet string,
 ) (*Router, error) {
 	r := &Router{
-		logger:    l,
+		logger:    logger,
 		auditor:   a,
-		repo:      st,
+		repo:      repo,
 		secretKey: key,
 	}
 

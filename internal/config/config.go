@@ -56,13 +56,14 @@ func parseBool(s string) (bool, error) {
 }
 
 type AgentConfig struct {
-	LogLevel       string `mapstructure:"log_level"`
-	ServerURL      string `mapstructure:"address"`
-	PollInterval   int    `mapstructure:"poll_interval"`
-	ReportInterval int    `mapstructure:"report_interval"`
-	SecretKey      string `mapstructure:"secret_key"`
-	RateLimit      int    `mapstructure:"rate_limit"`
-	CryptoKey      string `mapstructure:"crypto_key"`
+	LogLevel          string `mapstructure:"log_level"`
+	ServerURL         string `mapstructure:"address"`
+	GRPCServerAddress string `mapstructure:"grpc_server_address"`
+	PollInterval      int    `mapstructure:"poll_interval"`
+	ReportInterval    int    `mapstructure:"report_interval"`
+	SecretKey         string `mapstructure:"secret_key"`
+	RateLimit         int    `mapstructure:"rate_limit"`
+	CryptoKey         string `mapstructure:"crypto_key"`
 }
 
 func NewAgentConfig() (*AgentConfig, error) {
@@ -75,6 +76,12 @@ func NewAgentConfig() (*AgentConfig, error) {
 		"a",
 		"http://localhost:8080",
 		"address to connect to server",
+	)
+
+	pflag.String(
+		"grpc-server-address",
+		"",
+		"grpc server address (not used by default)",
 	)
 
 	pflag.IntP(
@@ -135,6 +142,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	v.AutomaticEnv()
 
 	v.RegisterAlias("log_level", "log-level")
+	v.RegisterAlias("grpc_server_address", "grpc-server-address")
 	v.RegisterAlias("poll_interval", "poll-interval")
 	v.RegisterAlias("report_interval", "report-interval")
 	v.RegisterAlias("secret_key", "secret-key")
@@ -150,8 +158,20 @@ func NewAgentConfig() (*AgentConfig, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	if !validateURL(cfg.ServerURL) {
+	if cfg.ServerURL != "" && !validateURL(cfg.ServerURL) {
 		return nil, fmt.Errorf("failed to validate server url: %s", cfg.ServerURL)
+	}
+
+	if cfg.GRPCServerAddress != "" &&
+		!validateHostPort(cfg.GRPCServerAddress, false) {
+		return nil, fmt.Errorf(
+			"failed to validate grpc server address: %s",
+			cfg.GRPCServerAddress,
+		)
+	}
+
+	if cfg.ServerURL == "" && cfg.GRPCServerAddress == "" {
+		return nil, fmt.Errorf("either address or grpc-server-address must be set")
 	}
 
 	return cfg, nil
@@ -163,6 +183,7 @@ func (c *AgentConfig) Debug() {
 		"agent config",
 		slog.String("log_level", c.LogLevel),
 		slog.String("server_url", c.ServerURL),
+		slog.String("grpc_server_address", c.GRPCServerAddress),
 		slog.Int("poll_interval", c.PollInterval),
 		slog.Int("report_interval", c.ReportInterval),
 		slog.Int("rate_limit", c.RateLimit),
@@ -173,6 +194,7 @@ func (c *AgentConfig) Debug() {
 type ServerConfig struct {
 	LogLevel      string        `mapstructure:"log_level"`
 	Address       string        `mapstructure:"address"`
+	GRPCAddress   string        `mapstructure:"grpc_server_address"`
 	StoreInterval time.Duration `mapstructure:"store_interval"`
 	FileStorePath string        `mapstructure:"file_storage_path"`
 	Restore       bool          `mapstructure:"restore"`
@@ -189,6 +211,12 @@ func NewServerConfig() (*ServerConfig, error) {
 
 	pflag.String("log-level", "info", "log level")
 	pflag.StringP("address", "a", "localhost:8080", "address to listen on")
+
+	pflag.String(
+		"grpc-server-address",
+		"",
+		"grpc server address (not used by default)",
+	)
 
 	pflag.DurationP(
 		"store-interval",
@@ -274,6 +302,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	v.AutomaticEnv()
 
 	v.RegisterAlias("log_level", "log-level")
+	v.RegisterAlias("grpc_server_address", "grpc-server-address")
 	v.RegisterAlias("store_interval", "store-interval")
 	v.RegisterAlias("file_storage_path", "file-storage-path")
 	v.RegisterAlias("database_dsn", "database-dsn")
@@ -296,6 +325,20 @@ func NewServerConfig() (*ServerConfig, error) {
 		return nil, fmt.Errorf("failed to parse subnet: %s", cfg.TrustedSubnet)
 	}
 
+	if cfg.Address != "" && !validateHostPort(cfg.Address, true) {
+		return nil, fmt.Errorf(
+			"failed to validate listen address: %s",
+			cfg.Address,
+		)
+	}
+
+	if cfg.GRPCAddress != "" && !validateHostPort(cfg.GRPCAddress, true) {
+		return nil, fmt.Errorf(
+			"failed to validate grpc address: %s",
+			cfg.GRPCAddress,
+		)
+	}
+
 	return cfg, nil
 }
 
@@ -305,6 +348,7 @@ func (c *ServerConfig) Debug() {
 		"server config",
 		slog.String("log_level", c.LogLevel),
 		slog.String("address", c.Address),
+		slog.String("grpc_server_address", c.GRPCAddress),
 		slog.Duration("store_interval", c.StoreInterval),
 		slog.String("file_store_path", c.FileStorePath),
 		slog.Bool("restore", c.Restore),
@@ -340,4 +384,24 @@ func validateURL(rawURL string) bool {
 func validateSubnet(subnet string) bool {
 	_, _, err := net.ParseCIDR(subnet)
 	return err == nil
+}
+
+func validateHostPort(addr string, allowEmptyHost bool) bool {
+	if addr == "" {
+		return false
+	}
+
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+
+	if !allowEmptyHost && host == "" {
+		return false
+	}
+
+	if _, err := strconv.Atoi(port); err != nil || port == "0" {
+		return false
+	}
+	return true
 }
