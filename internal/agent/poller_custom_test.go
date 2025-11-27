@@ -19,7 +19,7 @@ func TestNewCustomPoller(t *testing.T) {
 	)
 	poller := NewCustomPoller(logger)
 	assert.NotNil(t, poller)
-	assert.NotNil(t, poller.l)
+	assert.NotNil(t, poller.logger)
 }
 
 func TestCustomPoller_PollOnce(t *testing.T) {

@@ -15,7 +15,7 @@ func TestNewPSPoller(t *testing.T) {
 	poller := NewPSPoller(logger)
 
 	assert.NotNil(t, poller)
-	assert.NotNil(t, poller.l)
+	assert.NotNil(t, poller.logger)
 }
 
 func TestPSPoller_PollOnce(t *testing.T) {

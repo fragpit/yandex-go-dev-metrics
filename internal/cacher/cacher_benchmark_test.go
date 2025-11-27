@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/mock/gomock"
+
 	mocks "github.com/fragpit/yandex-go-dev-metrics/internal/mocks/repository"
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
-	"go.uber.org/mock/gomock"
 )
 
 func BenchmarkCacher_saveMetrics(b *testing.B) {

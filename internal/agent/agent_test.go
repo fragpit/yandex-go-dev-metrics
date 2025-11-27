@@ -8,6 +8,7 @@ import (
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/storage/memstorage"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAgentComponents(t *testing.T) {
@@ -35,14 +36,16 @@ func TestAgentComponents(t *testing.T) {
 	})
 
 	t.Run("create reporter", func(t *testing.T) {
-		reporter := NewReporter(
+		reporter, err := NewReporter(
 			logger,
 			storage,
 			"http://localhost:8080",
 			nil,
 			1,
 			"",
+			"",
 		)
+		require.NoError(t, err)
 		assert.NotNil(t, reporter)
 	})
 

@@ -11,15 +11,18 @@ import (
 
 // Aggregator is responsible for aggregating incoming metrics and storing them.
 type Aggregator struct {
-	l    *slog.Logger
-	repo repository.Repository
+	logger *slog.Logger
+	repo   repository.Repository
 }
 
 // NewAggregator creates a new Aggregator instance.
-func NewAggregator(logger *slog.Logger, st repository.Repository) *Aggregator {
+func NewAggregator(
+	logger *slog.Logger,
+	repo repository.Repository,
+) *Aggregator {
 	return &Aggregator{
-		l:    logger,
-		repo: st,
+		logger: logger,
+		repo:   repo,
 	}
 }
 
@@ -29,7 +32,7 @@ func (a *Aggregator) RunAggregator(
 	ctx context.Context,
 	in <-chan model.Metric,
 ) error {
-	a.l.Info("starting aggregator")
+	a.logger.Info("starting aggregator")
 
 	merge := func(metric model.Metric) error {
 		_ = a.repo.SetOrUpdateMetric(ctx, metric)

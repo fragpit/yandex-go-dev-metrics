@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -405,21 +406,85 @@ func TestReadKey(t *testing.T) {
 	}
 }
 
-// func TestRouter_decryptMiddleware(t *testing.T) {
-// 	tests := []struct {
-// 		name string
-// 	}{
-// 		{
-// 			name: "success",
-// 		},
-// 	}
+func TestRouter_verifySubnetMiddleware(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
 
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			var req *http.Request
+	router := &Router{
+		logger: logger,
+		trustedSubnet: &net.IPNet{
+			IP:   net.IPv4(192, 168, 1, 0),
+			Mask: net.IPv4Mask(255, 255, 255, 0),
+		},
+	}
 
-// 			req = httptest.NewRequest(http.MethodPost, "/updates")
-// 		})
-// 	}
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 
-// }
+	tests := []struct {
+		name           string
+		headerValue    string
+		setupHeader    bool
+		expectedStatus int
+		expectedBody   string
+		expectCalled   bool
+	}{
+		{
+			name:           "trusted ip",
+			headerValue:    "192.168.1.1",
+			setupHeader:    true,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "",
+			expectCalled:   true,
+		},
+		{
+			name:           "missing header",
+			setupHeader:    false,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "x-real-ip header is nil or unset\n",
+			expectCalled:   false,
+		},
+		{
+			name:           "invalid cidr",
+			headerValue:    "invalid-cidr",
+			setupHeader:    true,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "failed to parse x-real-ip\n",
+			expectCalled:   false,
+		},
+		{
+			name:           "forbidden ip",
+			headerValue:    "10.0.0.1",
+			setupHeader:    true,
+			expectedStatus: http.StatusForbidden,
+			expectedBody:   "Forbidden\n",
+			expectCalled:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				testHandler.ServeHTTP(w, r)
+			})
+
+			middleware := router.verifySubnetMiddleware(handler)
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			if tt.setupHeader {
+				req.Header.Set("X-Real-IP", tt.headerValue)
+			}
+
+			rr := httptest.NewRecorder()
+			middleware.ServeHTTP(rr, req)
+
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+			if tt.expectedBody != "" {
+				assert.Equal(t, tt.expectedBody, rr.Body.String())
+			}
+			assert.Equal(t, tt.expectCalled, called)
+		})
+	}
+}

@@ -5,14 +5,11 @@ import (
 	"testing"
 
 	"github.com/fragpit/yandex-go-dev-metrics/internal/model"
-	"github.com/fragpit/yandex-go-dev-metrics/internal/repository"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestReporter_reportMetrics(t *testing.T) {
 	type fields struct {
-		l         *slog.Logger
-		repo      repository.Repository
 		serverURL string
 		secretKey []byte
 		rateLimit int
@@ -30,8 +27,6 @@ func TestReporter_reportMetrics(t *testing.T) {
 		{
 			name: "empty metrics map",
 			fields: fields{
-				l:         slog.New(slog.DiscardHandler),
-				repo:      nil,
 				serverURL: "http://localhost:8080",
 				secretKey: nil,
 				rateLimit: 1,
@@ -43,13 +38,13 @@ func TestReporter_reportMetrics(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &Reporter{
-				l:         tt.fields.l,
-				repo:      tt.fields.repo,
-				serverURL: tt.fields.serverURL,
-				secretKey: tt.fields.secretKey,
-				rateLimit: tt.fields.rateLimit,
+				transport: &RESTTransport{
+					serverURL: tt.fields.serverURL,
+					secretKey: tt.fields.secretKey,
+					rateLimit: tt.fields.rateLimit,
+				},
 			}
-			err := r.reportMetrics(t.Context(), tt.args.m)
+			err := r.transport.SendMetrics(t.Context(), tt.args.m)
 			assert.NoError(t, err)
 		})
 	}
@@ -57,19 +52,18 @@ func TestReporter_reportMetrics(t *testing.T) {
 
 func TestNewReporter(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	reporter := NewReporter(
+	reporter, err := NewReporter(
 		logger,
 		nil,
 		"http://localhost:8080",
 		[]byte("secret"),
 		1,
 		"",
+		"",
 	)
 
+	assert.NoError(t, err)
 	assert.NotNil(t, reporter)
-	assert.Equal(t, "http://localhost:8080", reporter.serverURL)
-	assert.Equal(t, []byte("secret"), reporter.secretKey)
-	assert.Equal(t, 1, reporter.rateLimit)
 }
 
 func TestReadKey(t *testing.T) {

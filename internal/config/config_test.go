@@ -421,6 +421,61 @@ func TestNewServerConfig_EmptyAuditURL(t *testing.T) {
 	assert.Empty(t, cfg.AuditURL)
 }
 
+func TestNewServerConfig_TrustedSubnet(t *testing.T) {
+	tests := []struct {
+		name    string
+		subnet  string
+		errText string
+	}{
+		{
+			name:   "success",
+			subnet: "192.168.0.1/24",
+		},
+		{
+			name:   "success #2",
+			subnet: "",
+		},
+		{
+			name:    "fail #1",
+			subnet:  "192.168.0.111111/24",
+			errText: "failed to parse subnet",
+		},
+		{
+			name:    "fail #2",
+			subnet:  "192.168.0.1/2411",
+			errText: "failed to parse subnet",
+		},
+		{
+			name:    "fail #3",
+			subnet:  "wrong subnet format",
+			errText: "failed to parse subnet",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+
+			os.Args = []string{
+				"cmd",
+				"--trusted-subnet", tt.subnet,
+			}
+
+			cfg, err := NewServerConfig()
+			if tt.errText != "" {
+				require.Contains(t, err.Error(), tt.errText)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, cfg)
+			}
+
+		})
+	}
+
+}
+
 func TestGetEnvOrDefault(t *testing.T) {
 	l := slog.New(slog.DiscardHandler)
 	slog.SetDefault(l)

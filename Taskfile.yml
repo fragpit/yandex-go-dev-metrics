@@ -48,6 +48,16 @@ tasks:
   create-keys:
     cmd: go run cmd/keygen/main.go --out-dir {{ .ROOT_DIR }}/contrib/keys
 
+  compile-proto:
+    cmd: |
+      protoc \
+        --go_out=. \
+        --go_opt=paths=source_relative \
+        --go_opt=default_api_level=API_OPAQUE \
+        --go-grpc_out=. \
+        --go-grpc_opt=paths=source_relative \
+        internal/proto/metrics.proto
+
   build-dev:
     vars:
       BUILD_VERSION: "0.0.0"
